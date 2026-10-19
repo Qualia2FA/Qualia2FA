@@ -50,6 +50,7 @@ import dev.qualia.qualia2fa.resources.message_copied
 import dev.qualia.qualia2fa.resources.message_pairing_code_read
 import dev.qualia.qualia2fa.resources.message_reply_read
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -81,6 +82,10 @@ fun JoinAccountScreen(
     onJoined: (Vault) -> Unit,
     onCancel: () -> Unit,
 ) {
+    // Back leaves the joining flow rather than the application; there is a login screen behind
+    // this one and the user may simply have changed their mind.
+    PlatformBackHandler { onCancel() }
+
     /**
      * Where the transferred master key is written, or `null` when this machine has no platform
      * key store — which the login screen reports before it ever offers this route.
@@ -139,13 +144,15 @@ fun JoinAccountScreen(
                     var channel: LanChannel? = null
                     var lobby: LanLobby? = null
                     try {
+                        // Hold the multicast lock before the sockets are opened: the chipset
+                        // starts delivering group traffic to the system only once it is held.
+                        multicast.acquire()
                         val opened = Qualia.lanChannel(id)
                         if (opened == null) {
                             message = lanUnavailable
                             return@launch
                         }
                         channel = opened
-                        multicast.acquire()
 
                         val found = opened.openLobby()
                         if (found == null) {
@@ -168,7 +175,23 @@ fun JoinAccountScreen(
                         }
 
                         lanStage = LanStage.Waiting
-                        val answer = opened.receive(LAN_REPLY_TIMEOUT_MS)
+                        // The host answers on the connection this request opened, but it
+                        // still has to know who to send to: keep announcing while the answer
+                        // is awaited, so a host that had not heard this device yet can
+                        // register it and reply instead of timing out.
+                        val keepAnnouncing =
+                            launch {
+                                while (isActive) {
+                                    found.announceNow()
+                                    delay(LAN_ANNOUNCE_INTERVAL)
+                                }
+                            }
+                        val answer =
+                            try {
+                                opened.receive(LAN_REPLY_TIMEOUT_MS)
+                            } finally {
+                                keepAnnouncing.cancel()
+                            }
                         if (answer == null) {
                             message = lanTimedOut
                             return@launch
@@ -338,6 +361,9 @@ private val LAN_DISCOVERY_TIMEOUT = 15.seconds
 /** How often the lobby is asked while looking for it. */
 private const val LAN_DISCOVERY_MS = 500L
 
+/** How often this device announces itself while it is looking for the other one. */
+private val LAN_ANNOUNCE_INTERVAL = 2.seconds
+
 /**
  * Waits for the device named by [record] to announce itself, or gives up.
  *
@@ -348,9 +374,29 @@ private const val LAN_DISCOVERY_MS = 500L
  */
 private suspend fun awaitHost(lobby: LanLobby, record: ByteArray): LanPeer? {
     val deadline = TimeSource.Monotonic.markNow() + LAN_DISCOVERY_TIMEOUT
+    var nextAnnounce = TimeSource.Monotonic.markNow()
+    // A device that has several interfaces sends the same announcement from each of them, and
+    // the address that reaches this device is not necessarily the one the next datagram comes
+    // from. Waiting until the address has stayed the same for one poll keeps a request from
+    // being dialled at an address that was replaced a moment later.
+    var settled: String? = null
     while (true) {
+        // The host has to hear this device before it can answer it over the connection the
+        // request opens: a reply goes back on that connection, and the host refuses to send to
+        // a peer it has never heard of. Re-announcing while the lookup runs covers the lost
+        // datagrams a multicast path drops without telling anyone.
+        if (nextAnnounce.hasPassedNow()) {
+            lobby.announceNow()
+            nextAnnounce = TimeSource.Monotonic.markNow() + LAN_ANNOUNCE_INTERVAL
+        }
+
         val peer = lobby.peerWith(record)
-        if (peer != null && peer.here && peer.socket != null) return peer
+        if (peer != null && peer.here && peer.socket != null) {
+            if (settled == peer.socket) return peer
+            settled = peer.socket
+        } else {
+            settled = null
+        }
         if (deadline.hasPassedNow()) return null
         delay(LAN_DISCOVERY_MS)
     }

@@ -8,8 +8,10 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 
@@ -73,13 +75,17 @@ private const val LOCK_TAG = "qualia2fa-lan"
 @Composable
 actual fun rememberLanPermission(): LanPermission {
     val context = LocalContext.current
-    val missing = remember(context) { missingLanPermissions(context) }
+    // Kept as state rather than read once: a grant changes what is missing, and a second open
+    // of the local network must not ask for permissions that are already held (nor keep
+    // treating a grant made in the system settings as missing).
+    var missing by remember(context) { mutableStateOf(missingLanPermissions(context)) }
     val pending = remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { answers ->
             val answer = pending.value
             pending.value = null
+            missing = missingLanPermissions(context)
             answer?.invoke(answers.isNotEmpty() && answers.values.all { it })
         }
 
