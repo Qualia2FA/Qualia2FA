@@ -35,12 +35,13 @@ import androidx.compose.ui.unit.dp
  *
  * # Which scheme is used
  *
- * The platform's answer, [isSystemInDarkTheme]: the user already has that setting, and a
- * second one inside the application would only be able to disagree with it. The two
- * platforms differ in **when** they read it, and that is the toolkits' doing rather than a
- * choice here: on Android the configuration is delivered to the running application, so a
- * change while it is open is followed immediately; on the desktop the toolkit reads the
- * system theme when the window is created, so a change is picked up at the next start.
+ * [theme] is the user's choice, persisted with the language. [AppTheme.System] asks
+ * [isSystemInDarkTheme] and follows it; [AppTheme.Light] and [AppTheme.Dark] ignore the
+ * platform. The two platforms differ in **when** they read the system setting, and that is
+ * the toolkits' doing rather than a choice here: on Android the configuration is delivered
+ * to the running application, so a change while it is open is followed immediately; on the
+ * desktop the toolkit reads the system theme when the window is created, so a change is
+ * picked up at the next start. An explicit light or dark choice has no such dependency.
  *
  * # Why the theme paints a background
  *
@@ -65,8 +66,15 @@ import androidx.compose.ui.unit.dp
  * near-square corners of the Material defaults.
  */
 @Composable
-fun QualiaTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) QualiaDarkColors else QualiaLightColors
+fun QualiaTheme(theme: AppTheme = AppTheme.System, content: @Composable () -> Unit) {
+    val dark =
+        when (theme) {
+            AppTheme.System -> isSystemInDarkTheme()
+            AppTheme.Light -> false
+            AppTheme.Dark -> true
+        }
+    val colors = if (dark) QualiaDarkColors else QualiaLightColors
+    PlatformWindowTheme(background = colors.background, dark = dark)
     MaterialTheme(
         colorScheme = colors,
         shapes = QualiaShapes,
@@ -171,6 +179,22 @@ internal val QualiaDarkColors =
         onErrorContainer = Color(0xFFFFDAD6),
         scrim = Ink,
     )
+
+/**
+ * The corner radius the shadow geometry is derived from: the 2FA entry card.
+ *
+ * Every shadow in the interface uses these three constants, whatever shape the surface it
+ * belongs to has. That is deliberate: a section card, the navigation island and a floating
+ * window share one shadow language instead of each Material elevation giving a different
+ * offset and softness.
+ */
+val EntryCardCornerRadius = 20.dp
+
+/** The shadow starts this far below the surface, and its softness is the same length. */
+val CardShadowOffset = EntryCardCornerRadius * (2f / 3f)
+
+/** The shadow's spread, tightened to two thirds of the entry card's corner radius. */
+val CardShadowBlur = CardShadowOffset
 
 /** Rounded like the mark: a sixth of the side rather than a near-square corner. */
 private val QualiaShapes =

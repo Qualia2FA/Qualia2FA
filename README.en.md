@@ -22,23 +22,23 @@ A **serverless, non-realtime** multi-platform two-factor authentication (2FA) ap
 Each device runs on its own: no vendor server, no account, no master password. Devices
 signed in to the same account can share 2FA entries directly, and merging takes the union.
 
-| Item                | Value                                      |
-|---------------------|--------------------------------------------|
-| Platforms           | Windows and Android                        |
-| UI                  | Compose Multiplatform                      |
-| Interface languages | English (default), Simplified Chinese      |
-| Interface theme     | Follows the system's light or dark setting |
-| License             | Apache-2.0                                 |
+| Item                | Value                                                    |
+|---------------------|----------------------------------------------------------|
+| Platforms           | Windows and Android                                      |
+| UI                  | Compose Multiplatform                                    |
+| Interface languages | English (default), Simplified Chinese                    |
+| Interface theme     | Light, dark or follow the system; switchable in settings |
+| License             | Apache-2.0                                               |
 
 ## Installing
 
 Every version is published on the [Releases](https://github.com/Qualia2FA/Qualia2FA/releases)
 page:
 
-| Platform                           | Artifacts                       | Notes                                                                                   |
-|------------------------------------|---------------------------------|-----------------------------------------------------------------------------------------|
+| Platform                           | Artifacts                            | Notes                                                                                   |
+|------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------|
 | Windows 10 / 11 (x64)              | `.msi` and `.exe` offline installers | Signed, but with a self-signed certificate, so Windows warns about an unknown publisher |
-| Android 8.0 and above (64-bit ARM) | `.apk`                          | Signed with the project's release key, installable as it is                             |
+| Android 8.0 and above (64-bit ARM) | `.apk`                               | Signed with the project's release key, installable as it is                             |
 
 The Android build currently ships only the `arm64-v8a` architecture, and the Windows build
 only `x86_64`. Pull requests are very welcome.
@@ -87,12 +87,12 @@ The core functionality is essentially complete. What remains is:
 
 ## Building and running
 
-| crate              | Contents                                                                                                                                                 | License            |
-|--------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|
-| `qualia-dik`       | Device identity primitives (representation, fingerprint, verification) and the platform-native hardware keystores; the only library crate allowed to use `unsafe` | LGPL-3.0-or-later |
+| crate              | Contents                                                                                                                                                                                    | License           |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------|
+| `qualia-dik`       | Device identity primitives (representation, fingerprint, verification) and the platform-native hardware keystores; the only library crate allowed to use `unsafe`                           | LGPL-3.0-or-later |
 | `qualia-transport` | Transport channels: QR support (capacity model, encoding/decoding, rendering, text envelope) and LAN support (multicast discovery, connection records, a QUIC data plane), both implemented | LGPL-3.0-or-later |
-| `qualia2fa-core`   | All cryptography, the vault format, the sync and pairing protocols. No I/O, no clock, no `unsafe`                                                       | LGPL-3.0-or-later |
-| `qualia2fa-ffi`    | UniFFI bindings (Kotlin / Swift) plus the binding generator                                                                                              | LGPL-3.0-or-later |
+| `qualia2fa-core`   | All cryptography, the vault format, the sync and pairing protocols. No I/O, no clock, no `unsafe`                                                                                           | LGPL-3.0-or-later |
+| `qualia2fa-ffi`    | UniFFI bindings (Kotlin / Swift) plus the binding generator                                                                                                                                 | LGPL-3.0-or-later |
 
 Building needs JDK 21 and a Rust toolchain (MSVC on Windows):
 
@@ -227,3 +227,9 @@ The four Rust layers (`qualia-dik`, `qualia2fa-core`, `qualia2fa-ffi`, `qualia-t
 under LGPL-3.0-or-later. The combination is deliberate: the app layer stays permissively
 licensed for easy distribution and reuse, while the cryptographic core stays copyleft, so any
 modification has to be given back.
+
+The bundled Cascadia Code typeface is Copyright (c) 2019 - Present, Microsoft Corporation,
+and is licensed under the SIL Open Font License 1.1. It is used only for the monospaced
+verification-code and pairing-code display. The full license is distributed with the
+application at `composeApp/src/commonMain/composeResources/files/cascadia-code-OFL.txt` and
+reproduced in [`NOTICE`](NOTICE).

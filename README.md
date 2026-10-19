@@ -27,7 +27,7 @@
 | 平台     | Windows 与 Android     |
 | 界面     | Compose Multiplatform  |
 | 界面语言 | 英文（默认）、简体中文 |
-| 界面主题 | 跟随系统的浅色 / 深色  |
+| 界面主题 | 浅色 / 深色 / 跟随系统，可在设置中切换 |
 | 许可证   | Apache-2.0             |
 
 ## 安装
@@ -199,3 +199,8 @@ WCAG 2.1 算一遍，两套配色都要达到 AA（4.5:1）；任何一处调色
 四个 Rust 层（`qualia-dik`、`qualia2fa-core`、`qualia2fa-ffi`、`qualia-transport`）
 采用 LGPL-3.0-or-later。两套许可证的组合是有意选择——应用层用宽松许可证，便于分发
 与二次开发；核心的密码学实现保持 copyleft，使任何修改都必须回馈。
+
+应用内嵌的 Cascadia Code 字体由 Microsoft 以 SIL Open Font License 1.1 授权，
+仅用于验证码与配对码的等宽显示。完整许可证随应用分发于
+`composeApp/src/commonMain/composeResources/files/cascadia-code-OFL.txt`，并抄录在
+[`NOTICE`](NOTICE) 中。
