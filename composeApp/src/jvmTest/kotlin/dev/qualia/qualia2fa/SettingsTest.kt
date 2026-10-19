@@ -62,6 +62,58 @@ class SettingsTest {
     }
 
     @Test
+    fun theThemeChoiceSurvivesANewStoreAndCoexistsWithTheLanguage() {
+        val file = temporarySettings()
+
+        assertEquals(
+            AppTheme.System,
+            FileSettingsStore(file).theme(),
+            "nothing chosen yet means follow the system theme",
+        )
+
+        val store = FileSettingsStore(file)
+        store.setLanguage(AppLanguage.Chinese)
+        store.setTheme(AppTheme.Dark)
+
+        val restarted = FileSettingsStore(file)
+        assertEquals(AppLanguage.Chinese, restarted.language(), "writing the theme must not lose the language")
+        assertEquals(AppTheme.Dark, restarted.theme(), "the theme reads back from a store that did not write it")
+    }
+
+    @Test
+    fun everyThemeRoundTrips() {
+        val file = temporarySettings()
+        val store = FileSettingsStore(file)
+        AppTheme.entries.forEach { theme ->
+            store.setTheme(theme)
+            assertEquals(theme, FileSettingsStore(file).theme())
+        }
+    }
+
+    @Test
+    fun anUnknownOrBrokenThemeMeansSystem() {
+        val file = temporarySettings()
+        Files.createDirectories(file.parent)
+        Files.writeString(file, "theme=Sepia\n")
+        assertEquals(AppTheme.System, FileSettingsStore(file).theme())
+
+        Files.writeString(file, "this is not a properties file at all")
+        assertEquals(AppTheme.System, FileSettingsStore(file).theme())
+    }
+
+    @Test
+    fun theGroupLayoutSurvivesANewStoreAndCanBeCleared() {
+        val file = temporarySettings()
+        val layout = "Q2FAGL1\ng:top|e:one"
+
+        FileSettingsStore(file).setGroupLayout(layout)
+        assertEquals(layout, FileSettingsStore(file).groupLayout())
+
+        FileSettingsStore(file).setGroupLayout(null)
+        assertEquals(null, FileSettingsStore(file).groupLayout())
+    }
+
+    @Test
     fun writingLeavesNoTemporaryFileBehind() {
         val file = temporarySettings()
         FileSettingsStore(file).setLanguage(AppLanguage.Chinese)

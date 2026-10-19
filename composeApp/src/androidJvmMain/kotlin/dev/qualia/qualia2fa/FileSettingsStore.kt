@@ -8,11 +8,11 @@ import java.util.Properties
 /**
  * Keeps the preferences in a properties file under the application data directory.
  *
- * Nothing here is secret: the file holds the language choice and whatever is added later,
- * and it is read with the same trust as a configuration file a user may edit by hand. A
- * missing file, an unreadable one and an unknown language name all mean "no choice yet",
- * because none of them is worth refusing to start the application over — the language is
- * also switchable from the interface.
+ * Nothing here is secret: the file holds the language and theme choices and whatever is added
+ * later, and it is read with the same trust as a configuration file a user may edit by hand. A
+ * missing file, an unreadable one and an unknown name all mean "no choice yet", because none of
+ * them is worth refusing to start the application over — both choices are also switchable from
+ * the interface.
  *
  * Writes go through a temporary file and a move, so a crash cannot leave a half-written
  * file behind.
@@ -26,6 +26,32 @@ class FileSettingsStore(private val path: Path) : SettingsStore {
     override fun setLanguage(language: AppLanguage) {
         val properties = read() ?: Properties()
         properties.setProperty(LANGUAGE_KEY, language.name)
+        write(properties)
+    }
+
+    override fun theme(): AppTheme {
+        val properties = read()
+        return AppTheme.fromName(properties?.getProperty(THEME_KEY))
+    }
+
+    override fun setTheme(theme: AppTheme) {
+        val properties = read() ?: Properties()
+        properties.setProperty(THEME_KEY, theme.name)
+        write(properties)
+    }
+
+    override fun groupLayout(): String? {
+        val properties = read() ?: return null
+        return properties.getProperty(GROUP_LAYOUT_KEY)
+    }
+
+    override fun setGroupLayout(layout: String?) {
+        val properties = read() ?: Properties()
+        if (layout == null) {
+            properties.remove(GROUP_LAYOUT_KEY)
+        } else {
+            properties.setProperty(GROUP_LAYOUT_KEY, layout)
+        }
         write(properties)
     }
 
@@ -54,5 +80,11 @@ class FileSettingsStore(private val path: Path) : SettingsStore {
     private companion object {
         /** The key holding the chosen language. */
         const val LANGUAGE_KEY = "language"
+
+        /** The key holding the chosen theme. */
+        const val THEME_KEY = "theme"
+
+        /** The key holding the group tree; only identifiers, never secrets. */
+        const val GROUP_LAYOUT_KEY = "group_layout"
     }
 }
