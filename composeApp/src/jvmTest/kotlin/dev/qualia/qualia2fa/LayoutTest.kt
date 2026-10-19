@@ -113,6 +113,17 @@ class LayoutTest {
         assertFalse(login.showLogo, "the buttons are the only thing left to show")
     }
 
+    /**
+     * The scanner's window takes half of the shorter side of the picture.
+     *
+     * The first version used three tenths and was too small to aim a code through on a phone.
+     * Pinning the value is what keeps a later tidy-up from quietly shrinking it back.
+     */
+    @Test
+    fun theScannerWindowTakesHalfTheShorterSide() {
+        assertEquals(0.5f, SCAN_WINDOW_SHARE)
+    }
+
     @Test
     fun navigationSitsOnTheSideInLandscapeAndAtTheBottomOtherwise() {
         assertEquals(NavigationPlacement.Side, navigationPlacement(1280.dp, 800.dp))

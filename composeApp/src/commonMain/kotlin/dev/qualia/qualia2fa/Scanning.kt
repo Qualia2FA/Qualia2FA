@@ -156,7 +156,7 @@ private fun Viewfinder() {
     val frame = MaterialTheme.colorScheme.surface
 
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val side = min(size.width, size.height) * WINDOW_SHARE
+        val side = min(size.width, size.height) * SCAN_WINDOW_SHARE
         val left = (size.width - side) / 2f
         val top = (size.height - side) / 2f
         val right = left + side
@@ -176,8 +176,14 @@ private fun Viewfinder() {
     }
 }
 
-/** How much of the shorter side of the view the window takes. */
-private const val WINDOW_SHARE = 0.3f
+/**
+ * How much of the shorter side of the view the window takes.
+ *
+ * Half the shorter side: the window has to be large enough that a code held at a comfortable
+ * distance fills it, while the dimmed picture around it still says where the camera is pointing.
+ * The first version used three tenths and was too small to aim through on a phone.
+ */
+internal const val SCAN_WINDOW_SHARE = 0.5f
 
 /** How much of the picture behind the window is dimmed away. */
 private const val SCRIM_ALPHA = 0.55f
@@ -199,6 +205,9 @@ private val FRAME_WIDTH = 3.dp
  */
 @Composable
 fun ScanScreen(request: ScanRequest, picker: FilePicker, onDismiss: () -> Unit) {
+    // The scanner is a step, not a destination: back returns to the screen that opened it.
+    PlatformBackHandler { onDismiss() }
+
     var status by remember { mutableStateOf(CameraStatus.Starting) }
 
     // The image path reports a failure through the same channel the caller uses for messages
