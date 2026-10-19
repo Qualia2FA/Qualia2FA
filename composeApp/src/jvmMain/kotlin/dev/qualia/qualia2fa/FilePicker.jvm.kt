@@ -73,13 +73,18 @@ private class DesktopFilePicker : FilePicker {
     override fun pickBytes(
         dialogTitle: String,
         filterLabel: String,
-        extension: String,
+        extension: String?,
         onResult: (ByteArray?) -> Unit,
     ) {
         val chooser =
             JFileChooser().apply {
                 this.dialogTitle = dialogTitle
-                fileFilter = FileNameExtensionFilter(filterLabel, extension)
+                // A null extension means "the caller does not know": leaving the filter unset
+                // keeps every file selectable, which is what an import screen needs before the
+                // content has been looked at.
+                if (extension != null) {
+                    fileFilter = FileNameExtensionFilter(filterLabel, extension)
+                }
             }
         if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return onResult(null)
 

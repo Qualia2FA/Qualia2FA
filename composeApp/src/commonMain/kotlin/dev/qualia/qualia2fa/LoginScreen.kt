@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,12 +28,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_cancel
+import dev.qualia.qualia2fa.resources.action_continue
 import dev.qualia.qualia2fa.resources.action_create_vault
+import dev.qualia.qualia2fa.resources.action_import_recovery
 import dev.qualia.qualia2fa.resources.action_join_existing_account
+import dev.qualia.qualia2fa.resources.action_recover_from_file
 import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
+import dev.qualia.qualia2fa.resources.action_restore
 import dev.qualia.qualia2fa.resources.action_unlock
+import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
+import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
+import dev.qualia.qualia2fa.resources.dialog_open_recovery
 import dev.qualia.qualia2fa.resources.dialog_reset_title
+import dev.qualia.qualia2fa.resources.filter_recovery_files
 import dev.qualia.qualia2fa.resources.first_run_intro
 import dev.qualia.qualia2fa.resources.first_run_join_explainer
 import dev.qualia.qualia2fa.resources.first_run_no_hardware_warning
@@ -109,8 +118,21 @@ fun LoginScreen(
     onJoin: () -> Unit,
     onUnlock: () -> Unit,
     onReset: () -> Unit,
+    onRecover: (ByteArray, String) -> Unit,
 ) {
     var confirmingReset by remember { mutableStateOf(false) }
+    var chosenRecovery by remember { mutableStateOf<ByteArray?>(null) }
+    var recoveryFile by remember { mutableStateOf<ByteArray?>(null) }
+    val picker = rememberFilePicker()
+    val openRecoveryTitle = stringResource(Res.string.dialog_open_recovery)
+    val recoveryFilter = stringResource(Res.string.filter_recovery_files)
+
+    /** Opens a recovery file, and asks for its passphrase once one is chosen. */
+    fun chooseRecoveryFile() {
+        picker.pickBytes(openRecoveryTitle, recoveryFilter, RECOVERY_FILE_EXTENSION) { file ->
+            if (file != null) chosenRecovery = file
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val layout = loginLayout(maxWidth, maxHeight)
@@ -124,19 +146,29 @@ fun LoginScreen(
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Brand(showTitle = layout.showTitle)
                 }
-                Column(Modifier.weight(1f)) {
-                    Actions(
-                        mode,
-                        reason,
-                        hardwareBacked,
-                        message,
-                        language,
-                        onSelectLanguage,
-                        onCreateVault,
-                        onJoin,
-                        onUnlock,
-                        onReset = { confirmingReset = true },
-                    )
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // The actions gained a recovery button, and a short landscape window has
+                    // to keep every action reachable rather than clip the last one.
+                    Column(
+                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    ) {
+                        Actions(
+                            mode,
+                            reason,
+                            hardwareBacked,
+                            message,
+                            language,
+                            onSelectLanguage,
+                            onCreateVault,
+                            onJoin,
+                            onUnlock,
+                            onReset = { confirmingReset = true },
+                            onRecoverFromFile = ::chooseRecoveryFile,
+                        )
+                    }
                 }
             }
         } else {
@@ -164,6 +196,7 @@ fun LoginScreen(
                         onJoin,
                         onUnlock,
                         onReset = { confirmingReset = true },
+                        onRecoverFromFile = ::chooseRecoveryFile,
                     )
                 }
             }
@@ -191,6 +224,41 @@ fun LoginScreen(
             },
         )
     }
+
+    chosenRecovery?.let { file ->
+        AlertDialog(
+            onDismissRequest = { chosenRecovery = null },
+            properties = DialogDefaults,
+            title = { Text(stringResource(Res.string.dialog_import_recovery_title)) },
+            text = { Text(stringResource(Res.string.dialog_import_recovery_text)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        chosenRecovery = null
+                        recoveryFile = file
+                    },
+                ) { Text(stringResource(Res.string.action_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { chosenRecovery = null }) {
+                    Text(stringResource(Res.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    recoveryFile?.let { file ->
+        PassphraseDialog(
+            title = stringResource(Res.string.action_import_recovery),
+            confirmLabel = stringResource(Res.string.action_restore),
+            askTwice = false,
+            onDismiss = { recoveryFile = null },
+            onConfirm = { passphrase ->
+                recoveryFile = null
+                onRecover(file, passphrase)
+            },
+        )
+    }
 }
 
 /** The subtitle, the buttons, the explanation and the way to change the language. */
@@ -206,6 +274,7 @@ private fun Actions(
     onJoin: () -> Unit,
     onUnlock: () -> Unit,
     onReset: () -> Unit,
+    onRecoverFromFile: () -> Unit,
 ) {
     val warningColor = MaterialTheme.colorScheme.error
 
@@ -221,6 +290,9 @@ private fun Actions(
                 }
                 OutlinedButton(onClick = onJoin, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(Res.string.action_join_existing_account))
+                }
+                OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(Res.string.action_recover_from_file))
                 }
                 Hint(stringResource(Res.string.first_run_intro))
                 if (!hardwareBacked) {
@@ -257,6 +329,9 @@ private fun Actions(
                 OutlinedButton(onClick = onJoin, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(Res.string.action_join_existing_account))
                 }
+                OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(Res.string.action_recover_from_file))
+                }
             }
 
             LoginMode.VaultMissing -> {
@@ -271,6 +346,9 @@ private fun Actions(
                 // it would draw a new key.
                 Button(onClick = onJoin, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(Res.string.action_join_existing_account))
+                }
+                OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(Res.string.action_recover_from_file))
                 }
             }
         }

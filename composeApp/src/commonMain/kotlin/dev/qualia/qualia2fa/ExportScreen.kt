@@ -3,13 +3,15 @@ package dev.qualia.qualia2fa
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -146,7 +148,11 @@ fun ExportScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.l),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = Space.xl, top = Space.l, end = Space.xl),
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         ScreenTitle(stringResource(Res.string.export_title))
@@ -176,14 +182,13 @@ fun ExportScreen(
 
         if (format.needsPassword) {
             Text(stringResource(Res.string.export_password_title), style = MaterialTheme.typography.titleMedium)
-            OutlinedTextField(
+            SecretField(
                 value = password,
                 onValueChange = {
                     password = it
                     message = null
                 },
-                label = { Text(stringResource(Res.string.export_password_hint)) },
-                singleLine = true,
+                label = stringResource(Res.string.export_password_hint),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -195,5 +200,7 @@ fun ExportScreen(
             Button(onClick = { save() }) { Text(stringResource(Res.string.action_save)) }
             TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
         }
+
+        Spacer(Modifier.height(LocalNavigationInset.current))
     }
 }

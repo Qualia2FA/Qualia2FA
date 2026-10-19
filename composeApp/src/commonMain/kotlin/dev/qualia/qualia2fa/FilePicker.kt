@@ -31,6 +31,13 @@ class GrayPixels(val width: Int, val height: Int, val pixels: ByteArray)
  *
  * [extension] is appended to a saved name when the user does not type one, so that the file
  * keeps the name the filter and the documentation talk about.
+ *
+ * # Reading every file, or only one kind
+ *
+ * [pickBytes] takes `null` for the extension when the caller does not know what it is looking
+ * for. An export chosen from a downloads directory can carry any name, and a picker that only
+ * lists one extension would hide the file the user is trying to import. A caller that has
+ * asked the user which format it is passes that format's extension instead.
  */
 interface FilePicker {
     /**
@@ -60,8 +67,11 @@ interface FilePicker {
      * [onResult] is called with `null` when the user cancels or the file cannot be read. The
      * bytes are handed over as they are: **decoding and validating them is not this layer's
      * job**, it belongs to the core that defines the format.
+     *
+     * [extension] is the one file extension to list, without the dot, or `null` to list every
+     * file. The label is what a picker that shows filters calls the one it offers.
      */
-    fun pickBytes(dialogTitle: String, filterLabel: String, extension: String, onResult: (ByteArray?) -> Unit)
+    fun pickBytes(dialogTitle: String, filterLabel: String, extension: String?, onResult: (ByteArray?) -> Unit)
 }
 
 /**

@@ -125,9 +125,12 @@ private class AndroidFilePicker(
     override fun pickBytes(
         dialogTitle: String,
         filterLabel: String,
-        extension: String,
+        extension: String?,
         onResult: (ByteArray?) -> Unit,
     ) {
+        // The Storage Access Framework filters by MIME type, and an application-specific
+        // export has none. Listing every file keeps the one the user exported selectable, and
+        // what the file really is gets decided from its bytes.
         holdRead(onResult)
         pickDocument()
     }

@@ -1,5 +1,7 @@
 package dev.qualia.qualia2fa
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -8,11 +10,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
@@ -40,10 +48,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_cancel
 import dev.qualia.qualia2fa.resources.action_copy
@@ -56,7 +69,10 @@ import dev.qualia.qualia2fa.resources.action_import
 import dev.qualia.qualia2fa.resources.action_next_code
 import dev.qualia.qualia2fa.resources.action_save
 import dev.qualia.qualia2fa.resources.cd_add_entry
+import dev.qualia.qualia2fa.resources.cd_collapse_group
 import dev.qualia.qualia2fa.resources.cd_enter_selection
+import dev.qualia.qualia2fa.resources.cd_expand_group
+import dev.qualia.qualia2fa.resources.cd_manage_groups
 import dev.qualia.qualia2fa.resources.cd_selection_all
 import dev.qualia.qualia2fa.resources.cd_selection_none
 import dev.qualia.qualia2fa.resources.code_changes_in
@@ -97,6 +113,9 @@ import dev.qualia.qualia2fa.resources.field_secret_replace
 import dev.qualia.qualia2fa.resources.hint_link_prefilled
 import dev.qualia.qualia2fa.resources.hint_secret_kept
 import dev.qualia.qualia2fa.resources.icon_add
+import dev.qualia.qualia2fa.resources.icon_chevron_right
+import dev.qualia.qualia2fa.resources.icon_expand_more
+import dev.qualia.qualia2fa.resources.icon_group
 import dev.qualia.qualia2fa.resources.icon_select
 import dev.qualia.qualia2fa.resources.icon_select_all
 import dev.qualia.qualia2fa.resources.icon_selected
@@ -106,6 +125,7 @@ import dev.qualia.qualia2fa.resources.menu_scan_code
 import dev.qualia.qualia2fa.resources.message_copied_and_cleared
 import dev.qualia.qualia2fa.resources.message_entries_deleted
 import dev.qualia.qualia2fa.resources.message_entry_imported
+import dev.qualia.qualia2fa.resources.groups_top
 import dev.qualia.qualia2fa.resources.nav_two_factor
 import dev.qualia.qualia2fa.resources.selection_count
 import dev.qualia.qualia2fa.resources.two_factor_empty
@@ -133,9 +153,14 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun TwoFactorScreen(
     vault: Vault,
+    settings: SettingsStore,
     onPersist: () -> Unit,
 ) {
-    var entries by remember { mutableStateOf(vault.entries()) }
+    var layout by remember(vault) { mutableStateOf(GroupLayout.parse(settings.groupLayout(), vault)) }
+    var entries by remember(vault) { mutableStateOf(vault.entries()) }
+    var groups by remember(vault) { mutableStateOf(orderedGroups(vault, layout)) }
+    var collapsedGroups by remember { mutableStateOf(emptySet<String>()) }
+    var managingGroups by remember { mutableStateOf(false) }
     // The second the codes and the countdowns are read at, as a state rather than as a value: a
     // value handed to a card is one of the card's parameters, so a second passing would compose
     // every card in the list again -- ten of them, for a number each countdown reads for itself.
@@ -153,6 +178,9 @@ fun TwoFactorScreen(
     var deletingEntry by remember { mutableStateOf<Entry?>(null) }
     var deletedCount by remember { mutableStateOf<Int?>(null) }
     val clipboard = LocalClipboardManager.current
+    // Loaded once for the screen rather than by every card: a card recomposes each time its
+    // code changes, and the font is not part of that change.
+    val codeFont = CodeFontFamily()
 
     val unreadableImage = stringResource(Res.string.error_image_unreadable)
     val noEntryCode = stringResource(Res.string.error_image_has_no_entry)
@@ -165,9 +193,30 @@ fun TwoFactorScreen(
     val copiedAndCleared = stringResource(Res.string.message_copied_and_cleared)
     val scanner = LocalCodeScanner.current
 
+    // Selection is a mode of this screen, not a place the back request should leave the whole
+    // application from; while it is active, back returns to the ordinary list.
+    PlatformBackHandler(enabled = selecting) {
+        selecting = false
+        selected = emptySet()
+        message = null
+    }
+
+    /** Applies a tree change, writes the vault order it implies, and remembers it. */
+    fun applyLayout(next: GroupLayout) {
+        layout = next.reconciled(vault)
+        layout.applyEntryOrder(vault)
+        settings.setGroupLayout(layout.serialize())
+        entries = vault.entries()
+        groups = orderedGroups(vault, layout)
+        onPersist()
+    }
+
     /** Re-reads the entries after anything wrote to the vault. */
     fun refresh() {
+        layout = layout.reconciled(vault)
+        settings.setGroupLayout(layout.serialize())
         entries = vault.entries()
+        groups = orderedGroups(vault, layout)
         onPersist()
     }
 
@@ -231,7 +280,7 @@ fun TwoFactorScreen(
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(Space.l),
+        modifier = Modifier.fillMaxSize().padding(start = Space.xl, top = Space.l, end = Space.xl),
         verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
         if (selecting) {
@@ -266,6 +315,10 @@ fun TwoFactorScreen(
                     selecting = true
                     selected = emptySet()
                 }
+                IconAction(
+                    painter = painterResource(Res.drawable.icon_group),
+                    description = stringResource(Res.string.cd_manage_groups),
+                ) { managingGroups = true }
                 Box {
                     IconAction(
                         painter = painterResource(Res.drawable.icon_add),
@@ -315,47 +368,121 @@ fun TwoFactorScreen(
             Hint(stringResource(Res.string.two_factor_empty))
         }
 
+        val entryById = entries.associateBy { it.id }
+        val groupedIds = groups.flatMap { it.entryIds }.toSet()
+        val orphans = entries.filter { it.id !in groupedIds }
+        val displayGroups =
+            groups
+                .map { group ->
+                    val ids = if (group.top) group.entryIds + orphans.map { it.id } else group.entryIds
+                    group to ids.mapNotNull { entryById[it] }
+                }
+                .filter { it.second.isNotEmpty() }
+                .ifEmpty {
+                    if (entries.isEmpty()) {
+                        emptyList()
+                    } else {
+                        // A vault whose group records were lost still has entries; showing them
+                        // under the ungrouped heading is better than showing nothing.
+                        listOf(
+                            Group(
+                                id = "fallback",
+                                name = "",
+                                order = 0,
+                                top = true,
+                                entryIds = entries.map { it.id },
+                            ) to entries,
+                        )
+                    }
+                }
+
         LazyVerticalGrid(
+            // The adaptive column count is computed from the grid's own width, so make that
+            // width the full screen width explicitly instead of leaving it to a wrapped
+            // measurement.
+            modifier = Modifier.fillMaxWidth(),
             // As many cards of at least this width as the window holds: the number of columns
             // follows the window rather than being fixed, and a card in a partly filled last
             // row keeps the width of the ones above it.
             columns = GridCells.Adaptive(minSize = MinEntryCardWidth),
-            verticalArrangement = Arrangement.spacedBy(Space.s),
-            horizontalArrangement = Arrangement.spacedBy(Space.s),
+            // The navigation is an island over the content, so the end of the list has to stop
+            // above it. The middle of the list is allowed to pass under it.
+            contentPadding = PaddingValues(bottom = LocalNavigationInset.current),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
+            horizontalArrangement = Arrangement.spacedBy(Space.m),
         ) {
-            items(entries, key = { it.id }) { entry ->
-                // Read once a second, and the code asked of the library only when its step turns
-                // over: a code is the same value for the whole of its step, and asking for one on
-                // every composition is a crossing into the library per card per frame. A
-                // counter-based entry has no step, so what changes it is the counter itself.
-                val at = clock.value
-                EntryCard(
-                    entry = entry,
-                    code = remember(entry.id, entry.counter, at / entry.periodSeconds.coerceAtLeast(1)) {
-                        vault.codeFor(entry, at)
-                    },
-                    clock = clock,
-                    selected = if (selecting) entry.id in selected else null,
-                    onToggleSelection = {
-                        selected = if (entry.id in selected) selected - entry.id else selected + entry.id
-                    },
-                    onCopy = { code ->
-                        clipboard.setText(AnnotatedString(code))
-                        copied = code
-                        message = copiedAndCleared
-                    },
-                    onAdvance = {
-                        if (vault.advanceCounter(entry.id, currentTimeSeconds())) {
-                            refresh()
-                            message = null
-                        } else {
-                            message = entryNotSaved
-                        }
-                    },
-                    onDelete = { deletingEntry = entry },
-                    onEdit = { editing = entry },
-                )
+            displayGroups.forEach { (group, groupEntries) ->
+                // The ungrouped cards are the page's first content; they get no title box of
+                // their own. The named groups keep their full-width headers.
+                if (!group.top) {
+                    item(key = "group:${group.id}", span = { GridItemSpan(maxLineSpan) }) {
+                        GroupHeader(
+                            name = group.name,
+                            count = groupEntries.size,
+                            depth = layout.depthOfGroup(group.id).coerceIn(1, 3),
+                            expanded = group.id !in collapsedGroups,
+                            onToggle = {
+                                collapsedGroups =
+                                    if (group.id in collapsedGroups) {
+                                        collapsedGroups - group.id
+                                    } else {
+                                        collapsedGroups + group.id
+                                    }
+                            },
+                        )
+                    }
+                }
+
+                if (group.top || group.id !in collapsedGroups) {
+                    items(groupEntries, key = { it.id }) { entry ->
+                        // Read once a second, and the code asked of the library only when its
+                        // step turns over: a code is the same value for the whole of its step,
+                        // and asking for one on every composition is a crossing into the
+                        // library per card per frame. A counter-based entry has no step, so
+                        // what changes it is the counter itself.
+                        val at = clock.value
+                        EntryCard(
+                            entry = entry,
+                            code = remember(entry.id, entry.counter, at / entry.periodSeconds.coerceAtLeast(1)) {
+                                vault.codeFor(entry, at)
+                            },
+                            clock = clock,
+                            codeFont = codeFont,
+                            selected = if (selecting) entry.id in selected else null,
+                            onToggleSelection = {
+                                selected = if (entry.id in selected) selected - entry.id else selected + entry.id
+                            },
+                            onCopy = { code ->
+                                clipboard.setText(AnnotatedString(code))
+                                copied = code
+                                message = copiedAndCleared
+                            },
+                            onAdvance = {
+                                if (vault.advanceCounter(entry.id, currentTimeSeconds())) {
+                                    refresh()
+                                    message = null
+                                } else {
+                                    message = entryNotSaved
+                                }
+                            },
+                            onDelete = { deletingEntry = entry },
+                            onEdit = { editing = entry },
+                        )
+                    }
+                }
             }
+        }
+    }
+
+    if (managingGroups) {
+        FloatingWindow(onDismiss = { managingGroups = false }) {
+            GroupsScreen(
+                vault = vault,
+                layout = layout,
+                onClose = { managingGroups = false },
+                onLayoutChange = ::applyLayout,
+                onChanged = { refresh() },
+            )
         }
     }
 
@@ -366,7 +493,7 @@ fun TwoFactorScreen(
         AlertDialog(
             onDismissRequest = { deletingEntry = null },
             properties = DialogDefaults,
-            title = { Text(stringResource(Res.string.dialog_delete_entry_title, entry.name)) },
+            title = { Text(stringResource(Res.string.dialog_delete_entry_title, entry.presentedName())) },
             text = { Text(stringResource(Res.string.dialog_delete_entry_text)) },
             confirmButton = {
                 Button(onClick = {
@@ -492,16 +619,18 @@ fun TwoFactorScreen(
  *
  * # What the card shows
  *
- * Three lines, each with one thing to read on the left and the action that belongs to it on
- * the right: the name with its service beside it and **copy**, the code and **edit**, and when
- * the code changes next with the countdown ring and **delete**. The destructive action ends up
- * on the bottom line, where it belongs, and the ring sits immediately to its left. What is
- * counting down and what would destroy it are then read together, rather than the ring
- * floating beside the code.
+ * The name sits on the first line with the account under it and **copy** on the right; the code
+ * gets a line of its own in the code style; and the bottom line carries when the code changes
+ * next, the countdown ring, **edit** and **delete**. Moving edit down next to delete leaves the
+ * code alone on its line, which is what makes it readable at a glance, and the ring plus the two
+ * actions together are the row about the code's lifetime rather than a ring floating beside
+ * the digits.
  *
- * The account and the algorithm are deliberately **not** shown: they are what the editor is
- * for, and on a card that is one column of several they would cost a line each for something
- * the user reads once.
+ * The account is the second line because it is what tells two entries of one service apart; it
+ * is a line of its own rather than a suffix to the name so that a long address cannot take the
+ * room the name needs. The algorithm is deliberately **not** shown: it is what the editor is
+ * for, and on a card that is one column of several it would cost a line for something the user
+ * reads once.
  *
  * # The two kinds of entry
  *
@@ -516,6 +645,7 @@ private fun EntryCard(
     entry: Entry,
     code: String?,
     clock: State<Long>,
+    codeFont: FontFamily,
     selected: Boolean?,
     onToggleSelection: () -> Unit,
     onCopy: (String) -> Unit,
@@ -524,7 +654,8 @@ private fun EntryCard(
     onEdit: () -> Unit,
 ) {
     val period = entry.periodSeconds.coerceAtLeast(1)
-    val service = entry.issuer.takeIf { it.isNotBlank() }
+    val title = entry.presentedName()
+    val service = entry.presentedDetail()
     val counter = entry.counter
     val changing = code != null && counter == null
     // A scheme that computes its own shape of code is named on the card. Steam Guard's five
@@ -540,33 +671,36 @@ private fun EntryCard(
             is EntryKind.Hotp, is EntryKind.Totp -> null
         }
 
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .then(
-                    if (selected == null) {
-                        Modifier
-                    } else {
-                        // A checkbox rather than a clickable card: a screen reader then says
-                        // whether the entry is selected instead of only that it can be tapped.
-                        Modifier.toggleable(
-                            value = selected,
-                            role = Role.Checkbox,
-                            onValueChange = { onToggleSelection() },
-                        )
-                    },
-                ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
+    ShadowedSurface(shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (selected == null) {
+                            Modifier
+                        } else {
+                            // A checkbox rather than a clickable card: a screen reader then says
+                            // whether the entry is selected instead of only that it can be tapped.
+                            Modifier.toggleable(
+                                value = selected,
+                                role = Role.Checkbox,
+                                onValueChange = { onToggleSelection() },
+                            )
+                        },
+                    ),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(Space.l),
-            verticalArrangement = Arrangement.spacedBy(Space.xs),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 if (selected != null) {
                     Icon(
@@ -580,19 +714,45 @@ private fun EntryCard(
                     )
                 }
 
-                Row(
+                // The title and the account stack, and the pair takes the width the copy
+                // button leaves. The account gets its own line instead of sitting beside the
+                // name: the two entries of one service differ only there, and side by side a
+                // long account would take the room the name needs.
+                Column(
                     modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                    verticalArrangement = Arrangement.spacedBy(Space.xs),
                 ) {
-                    Text(entry.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.alignByBaseline())
-                    if (service != null) {
-                        Text("·", style = MaterialTheme.typography.bodySmall, modifier = Modifier.alignByBaseline())
-                        Text(service, style = MaterialTheme.typography.bodySmall, modifier = Modifier.alignByBaseline())
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                    ) {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.alignByBaseline(),
+                        )
+                        if (kindLabel != null) {
+                            Text("·", style = MaterialTheme.typography.bodySmall, modifier = Modifier.alignByBaseline())
+                            Text(
+                                kindLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.alignByBaseline(),
+                            )
+                        }
                     }
-                    if (kindLabel != null) {
-                        Text("·", style = MaterialTheme.typography.bodySmall, modifier = Modifier.alignByBaseline())
-                        Text(kindLabel, style = MaterialTheme.typography.bodySmall, modifier = Modifier.alignByBaseline())
+
+                    if (service != null) {
+                        Text(
+                            service,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
 
@@ -606,18 +766,18 @@ private fun EntryCard(
             }
 
             if (selected == null) {
-                Row(
+                // The code is the one thing on the card a user reads from across a desk, so it
+                // gets a line of its own in the code style. Chunking it in threes keeps eight
+                // digits legible without turning the card into a number to be typed.
+                Text(
+                    text = code?.chunked(3)?.joinToString(" ") ?: "------",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontFamily = codeFont,
+                    letterSpacing = 1.sp,
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = code?.chunked(3)?.joinToString(" ") ?: "------",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.weight(1f),
-                    )
-                    CompactTextButton(label = stringResource(Res.string.action_edit), onClick = onEdit)
-                }
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -634,6 +794,7 @@ private fun EntryCard(
                         Text(
                             text = stringResource(Res.string.code_counter, counter),
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -650,10 +811,70 @@ private fun EntryCard(
                             onClick = onAdvance,
                         )
                     }
+                    CompactTextButton(label = stringResource(Res.string.action_edit), onClick = onEdit)
                     CompactTextButton(label = stringResource(Res.string.action_delete), onClick = onDelete)
                 }
             }
         }
+        }
+    }
+}
+
+/**
+ * The header of one group: a full-width bar that expands or collapses its cards.
+ *
+ * The bar always spans the grid's whole width, however many groups there are and however the
+ * cards below it wrap. A group is a section, not a card, so it must not be squeezed to the
+ * width of one column when the window narrows.
+ */
+@Composable
+private fun GroupHeader(
+    name: String,
+    count: Int,
+    depth: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.medium)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = Space.m, vertical = Space.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // The indent is inside the full-width bar: nesting is visible, while the group still
+        // spans the list and never becomes as narrow as one card column.
+        Spacer(Modifier.width(16.dp * depth))
+        Icon(
+            painter =
+                painterResource(
+                    if (expanded) Res.drawable.icon_expand_more else Res.drawable.icon_chevron_right,
+                ),
+            contentDescription =
+                stringResource(
+                    if (expanded) Res.string.cd_collapse_group else Res.string.cd_expand_group,
+                ),
+            modifier = Modifier.size(Sizes.actionIcon),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(Space.s))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(Space.s))
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -682,6 +903,7 @@ private fun CountdownText(
     Text(
         text = if (changing) stringResource(Res.string.code_changes_in, remainingSeconds(clock.value, period)) else "",
         style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier,
     )
 }
@@ -700,6 +922,9 @@ private fun CountdownRing(clock: State<Long>, period: Long, modifier: Modifier =
     CircularProgressIndicator(
         progress = { remainingSeconds(clock.value, period).toFloat() / period.toFloat() },
         modifier = modifier,
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.outlineVariant,
+        strokeWidth = 3.dp,
     )
 }
 
@@ -742,10 +967,11 @@ private fun LinkDialog(
         title = { Text(stringResource(Res.string.dialog_import_link)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-                OutlinedTextField(
+                SecretField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text(stringResource(Res.string.field_otpauth_link)) },
+                    label = stringResource(Res.string.field_otpauth_link),
+                    singleLine = false,
                     maxLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -870,20 +1096,22 @@ private fun EntryDialog(
     onDismiss: () -> Unit,
     onSave: (EntryForm) -> Unit,
 ) {
-    var name by remember { mutableStateOf(initial?.name.orEmpty()) }
+    // Imported entries that carried no account column are shown in their corrected form: the
+    // service as the name, and the export's name in the account. Saving writes that back, so
+    // the correction is made once, by the user's own edit, rather than by guessing at read time.
+    var name by remember { mutableStateOf(initial?.presentedName().orEmpty()) }
     var issuer by remember { mutableStateOf(initial?.issuer.orEmpty()) }
-    var account by remember { mutableStateOf(initial?.account.orEmpty()) }
+    var account by remember { mutableStateOf(initial?.presentedAccount().orEmpty()) }
     // Never filled in from the entry being edited, and never shown back: a secret on screen is
     // a secret in someone's field of view, and nothing about editing the other fields needs
     // it. Editing therefore offers to *replace* the secret - an empty field leaves the one in
     // the vault alone.
     //
-    // The field starts on a single space rather than on nothing, because Material floats an
-    // outlined field's label onto the border only while the field holds something: on an empty
-    // one the label drops inside and stops reading as the field's name, which is where the
-    // other fields' names are. A space is `isBlank`, so the rules around this field still see
-    // it as empty, and the value is trimmed before it is used.
-    var secret by remember { mutableStateOf(" ") }
+    // The field starts empty, like every other field in this form. A sentinel would float its
+    // label onto the border before anything has been typed, which makes this one field read
+    // differently from the fields beside it and leaves the label saying what the field already
+    // is instead of what to type.
+    var secret by remember { mutableStateOf("") }
     var algorithm by remember { mutableStateOf(initial?.algorithm ?: OtpAlgorithm.Sha1) }
     val initialKind =
         remember(initial) {
@@ -902,7 +1130,9 @@ private fun EntryDialog(
     }
     var counter by remember { mutableStateOf((initial?.counter ?: DEFAULT_COUNTER).toString()) }
     // Empty means "keep the stored PIN" on an entry that has one, and "no PIN yet" on a new one.
-    var pin by remember { mutableStateOf(" ") }
+    // Kept empty rather than on a sentinel space for the same reason as the secret above: the
+    // label belongs to the field's own empty appearance, not to the border from the first frame.
+    var pin by remember { mutableStateOf("") }
     val pinIsStored = (initial?.kind as? EntryKind.Motp)?.pinSet == true ||
         (initial?.kind as? EntryKind.Yandex)?.pinSet == true
 
@@ -958,17 +1188,13 @@ private fun EntryDialog(
                         )
                     }
 
-                    OutlinedTextField(
+                    SecretField(
                         value = secret,
                         onValueChange = { secret = it },
-                        label = {
-                            Text(
-                                stringResource(
-                                    if (initial == null) Res.string.field_secret else Res.string.field_secret_replace,
-                                ),
-                            )
-                        },
-                        singleLine = true,
+                        label =
+                            stringResource(
+                                if (initial == null) Res.string.field_secret else Res.string.field_secret_replace,
+                            ),
                         // The explanation goes under the field rather than into its label:
                         // the label has to stay a name, the way the other fields' labels are.
                         supportingText = if (initial == null) {
@@ -1053,11 +1279,10 @@ private fun EntryDialog(
                     }
 
                     if (kind.needsPin) {
-                        OutlinedTextField(
+                        SecretField(
                             value = pin,
                             onValueChange = { pin = it },
-                            label = { Text(stringResource(Res.string.field_pin)) },
-                            singleLine = true,
+                            label = stringResource(Res.string.field_pin),
                             supportingText = {
                                 Text(
                                     stringResource(

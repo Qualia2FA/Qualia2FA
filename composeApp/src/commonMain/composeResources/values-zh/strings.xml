@@ -25,7 +25,7 @@
     <string name="first_run_no_hardware_warning">注意：本机没有硬件密钥库，保护主密钥的是一把软件密钥，只有你的操作系统账户在保护它。继续即表示你接受这一点。</string>
     <string name="first_run_join_explainer">登录会从一台已解锁的设备取得主密钥：那台设备显示一个码，本机用它生成请求，对方确认后把应答交回来。主密钥由这个码带外传递，不经过任何服务器。</string>
     <string name="login_locked_explainer">保险库已锁定。解锁会重新从平台密钥库取出主密钥，不需要输入任何密码。</string>
-    <string name="login_key_unreadable">这台设备上有一把现在读不出来的主密钥。在这里创建新保险库会顶掉它，里面的条目会一起丢失——先试试在另一台设备上用恢复密钥。</string>
+    <string name="login_key_unreadable">这台设备上有一把现在读不出来的主密钥。在这里创建新保险库会顶掉它，里面的条目会一起丢失——请先用恢复文件找回，在这台设备上或另一台设备上都可以。</string>
     <string name="login_vault_missing">这台设备上有一把主密钥，但保险库文件不在了。从同一账号的另一台设备登录可以把条目带回来；在这里创建保险库会换一把新密钥，把本机从这个账号里切出去。</string>
     <string name="login_reset_hint">如果本机已经打不开这个保险库，重置是回到「可以重新注册、或从另一台设备登录」的状态的办法。</string>
     <string name="login_reset_text">重置会删掉本机为这个账号保存的全部内容：保险库文件、它旁边那份包裹字节，以及平台密钥库里能解开这些字节的那一条。没有导出、也没有同步过的条目会消失，本机也再也打不开那个保险库。设备身份保留，所以本机仍然可以登录这个账号。</string>
@@ -47,6 +47,9 @@
     <string name="action_import">导入</string>
     <string name="error_link_rejected">这不是 otpauth:// 链接，或者它的参数不被接受（种子必须是合法 Base32）。</string>
     <string name="cd_add_entry">添加条目</string>
+    <string name="cd_manage_groups">管理分组</string>
+    <string name="cd_expand_group">展开这个分组</string>
+    <string name="cd_collapse_group">收起这个分组</string>
     <string name="cd_enter_selection">选择条目</string>
     <string name="cd_selection_all">全选</string>
     <string name="cd_selection_none">取消全选</string>
@@ -80,13 +83,19 @@
     <string name="field_secret">种子（Base32）</string>
     <string name="field_entry_type">类型</string>
     <string name="settings_groups">分组</string>
-    <string name="groups_top">顶分组</string>
+    <string name="groups_top">未分组</string>
     <string name="groups_top_hint">不属于任何分组的条目</string>
     <string name="groups_empty">这个分组里没有条目</string>
     <string name="groups_order_hint">分组内条目的顺序会同步：两台设备必须一致。</string>
     <string name="groups_remove_hint">删掉的是分组，不是条目：它们会回到顶分组。</string>
     <string name="groups_name_taken">这次修改没被接受。分组名称不能为空，也不能与已有的重名。</string>
     <string name="action_new_group">新建分组</string>
+    <string name="groups_subgroup">新建子分组</string>
+    <string name="groups_move_under">移动到分组</string>
+    <string name="groups_depth_limit">分组最多嵌套 3 层；条目可以放在最深的一层里。</string>
+    <string name="groups_drag_hint">长按一行，上下拖动可以改变条目和分组的位置；拖到分组上会放进该分组。</string>
+    <string name="groups_invalid_move">这个位置不允许：分组最多嵌套 3 层，也不能把分组放进它自己里面。</string>
+    <string name="action_more">更多</string>
     <string name="action_rename">重命名</string>
     <string name="action_remove">删除</string>
     <string name="action_move_up">上移</string>
@@ -101,6 +110,7 @@
     <string name="import_filter">导出文件</string>
     <string name="import_unreadable">读不了这个文件。</string>
     <string name="import_not_recognised">无法识别格式，它是哪一种？</string>
+    <string name="import_choose_format">或者直接指定文件的格式：</string>
     <string name="import_password_title">这份导出已加密</string>
     <string name="import_password_hint">口令</string>
     <string name="import_wrong_password">这个口令打不开该文件。</string>
@@ -164,17 +174,26 @@
     <!-- 平台文件对话框 -->
     <string name="dialog_pick_image">选择含有二维码的图片</string>
     <string name="filter_image_files">图片</string>
-    <string name="dialog_save_recovery">保存恢复密钥</string>
-    <string name="dialog_open_recovery">打开恢复密钥文件</string>
-    <string name="filter_recovery_files">恢复密钥文件</string>
+    <string name="dialog_save_recovery">保存恢复文件</string>
+    <string name="dialog_open_recovery">打开恢复文件</string>
+    <string name="filter_recovery_files">恢复文件</string>
 
     <!-- 局域网：同步与配对在两台设备位于同一个 WiFi 时走的那条路 -->
     <string name="lan_permission_refused">系统没有允许使用局域网，所以找不到这个 WiFi 上的设备。</string>
 
     <!-- 同步 -->
     <string name="sync_intro">同步用码在两个方向上各走一次：一台设备出示同步码，另一台读入并合并它带来的内容。全程不经过服务器，由二维码本身传递数据。</string>
+    <string name="sync_heading">同步码</string>
+    <string name="sync_generate">生成</string>
+    <string name="sync_read_title">读取同步码</string>
+    <string name="sync_code_field">同步码文本</string>
+    <string name="sync_scan">扫描</string>
+    <string name="sync_read">读取</string>
+    <string name="sync_copy_ciphertext">复制密文</string>
+    <string name="sync_copy_text">复制文本</string>
+    <string name="action_collapse">收起</string>
     <string name="sync_error_no_device_identity">这台设备没有平台身份，无法同步。它当初是以「本机保险库」创建的，不能配对或同步。</string>
-    <string name="sync_my_code_explainer">把这个码交给另一台设备。合并之后请重新生成一次：交出去的是生成那一刻的状态。</string>
+    <string name="sync_my_code_explainer">把这个码交给另一台设备。交出去的是生成那一刻的状态。</string>
     <string name="action_generate_code">生成同步码</string>
     <string name="sync_read_explainer">读入对方的同步码：贴在下面，或者打开它保存成的图片。</string>
     <string name="field_peer_code">对方的同步码</string>
@@ -235,11 +254,12 @@
     <string name="action_stop_lan">停止查找</string>
 
     <!-- 配对新设备（在同步界面里） -->
-    <string name="sync_pair_section">添加另一台设备</string>
+    <string name="sync_pair_section">配对</string>
     <string name="sync_pair_explainer">对方读过配对码之后会给你一段请求；只有在你确认之后，主密钥才会离开这台设备。</string>
     <string name="action_pair_new_device">配对新设备</string>
     <string name="pair_error_no_key_store">无法开始配对：本机没有可用的平台密钥库。</string>
     <string name="pair_intro">把下面这段配对码交给新设备（只在这一步有效）。它读完之后会给你一段请求。</string>
+    <string name="pair_code_title">配对码</string>
     <string name="action_copy_pairing_code">复制配对码</string>
     <string name="field_joiner_request">新设备的请求</string>
     <string name="action_scan_request">扫描请求</string>
@@ -261,6 +281,8 @@
     <string name="pair_lan_no_identity">本机没有平台身份，无法在网络里被找到。</string>
     <string name="pair_lan_request_from">请求来自局域网（设备 %1$s）。</string>
     <string name="pair_lan_reply_sent">应答已通过局域网发回。</string>
+    <string name="pair_lan_send_failed">应答没能通过局域网发回；仍可用下面的码手动带回。</string>
+    <string name="pair_lan_code_changed">网络设置改变后配对码也变了，新设备需要重新读取。</string>
 
     <!-- 在新设备上登录 -->
     <string name="join_intro">在一台已经解锁的设备上选择「配对新设备」，把那里显示的配对码贴到下面。</string>
@@ -295,6 +317,10 @@
     <!-- 设置 -->
     <string name="settings_language">语言</string>
     <string name="language_system">跟随系统语言</string>
+    <string name="settings_theme">主题</string>
+    <string name="theme_system">跟随系统主题</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
     <string name="settings_key_store">主密钥</string>
     <string name="settings_master_key_software">在平台密钥库中，受软件保护：只有你的操作系统账户在保护它</string>
     <string name="settings_device_identity">设备身份</string>
@@ -303,20 +329,24 @@
     <string name="settings_software_backed">非硬件保护</string>
     <string name="settings_core_version">核心库</string>
     <string name="settings_lock_now">立即锁定</string>
-    <string name="settings_recovery">恢复密钥</string>
-    <string name="settings_recovery_explainer">恢复密钥文件加上你设定的口令，可以在所有设备都丢失时取回主密钥。请离线保管：拿到文件和口令的人就拿到了这个账号。</string>
-    <string name="action_export_recovery">导出恢复密钥…</string>
-    <string name="action_import_recovery">导入恢复密钥…</string>
+    <string name="settings_recovery">恢复文件</string>
+    <string name="settings_recovery_explainer">恢复文件用你设定的口令保护主密钥，并同时带上加密后的保险库。即使所有设备都丢失，新设备也能用它找回条目。请离线保管：拿到文件和口令的人就拿到了这个账号。</string>
+    <string name="action_export_recovery">导出恢复文件…</string>
+    <string name="action_import_recovery">导入恢复文件…</string>
+    <string name="action_recover_from_file">从恢复文件找回账号…</string>
+    <string name="action_restore">找回</string>
     <string name="field_passphrase">口令</string>
     <string name="field_passphrase_again">再输一次口令</string>
     <string name="error_passphrase_mismatch">两次输入的口令不一致。</string>
-    <string name="error_recovery_export">恢复密钥没能生成。</string>
-    <string name="error_recovery_save">恢复密钥没能保存。</string>
+    <string name="error_recovery_export">恢复文件没能生成。</string>
+    <string name="error_recovery_save">恢复文件没能保存。</string>
     <string name="error_recovery_open">文件没能读取。</string>
-    <string name="error_recovery_rejected">没有被接受：口令不对，或者这不是一个恢复密钥文件。</string>
+    <string name="error_recovery_rejected">没有被接受：口令不对，或者这不是一个恢复文件。</string>
+    <string name="error_recovery_key_only">这是较早的恢复密钥：只有主密钥，没有条目。本机的保险库也没有用它打开，因此什么都没改动。请用完整的恢复文件，或者保险库导出，来找回条目。</string>
+    <string name="error_recovery_vault_failed">主密钥已经解出，但文件里的保险库打不开。文件可能损坏，或者属于另一个账号；本机的密钥没有被改动。</string>
     <string name="message_recovery_saved">已保存到 %1$s</string>
-    <string name="dialog_import_recovery_title">替换本机的保险库？</string>
-    <string name="dialog_import_recovery_text">导入恢复密钥会把本机的内容替换成那个账号。只存在于本机的条目不会被合并，会就此丢失。</string>
+    <string name="dialog_import_recovery_title">从恢复文件找回？</string>
+    <string name="dialog_import_recovery_text">恢复文件要用它的口令打开。完整的恢复文件会把本机的保险库替换成它携带的那个账号；较早的、只有密钥的文件只能重新打开本机已有的保险库。只存在于本机的条目不会被合并。</string>
     <string name="settings_about">关于</string>
     <string name="settings_license">应用本体为 Apache-2.0；它所依赖的 Rust 各层为 LGPL-3.0-or-later。</string>
 
@@ -325,9 +355,13 @@
     <string name="settings_reset_explainer">删除本机的保险库与主密钥，之后可以重新注册，也可以从另一台设备登录。没有导出、也没有同步过的条目会丢失。平台密钥库里的设备身份保留：这里修的是账号，不是身份。</string>
     <string name="action_reset_master_key">重置主密钥…</string>
     <string name="dialog_reset_title">重置主密钥？</string>
-    <string name="dialog_reset_text">本机的保险库文件与主密钥都会被删除。如果没有别的设备持有这个账号，也没有恢复密钥文件，其中的条目就找不回来了。</string>
+    <string name="dialog_reset_text">本机的保险库文件与主密钥都会被删除。如果没有别的设备持有这个账号，也没有导出过恢复文件，其中的条目就找不回来了。</string>
     <string name="action_reset">重置</string>
     <string name="message_master_key_reset">主密钥与保险库已删除，本机回到初次运行的状态。</string>
+
+    <!-- 隐私输入框：种子、PIN 与口令 -->
+    <string name="cd_show_secret">显示内容</string>
+    <string name="cd_hide_secret">隐藏内容</string>
 
     <!-- The scanner -->
     <string name="scan_title">扫描二维码</string>

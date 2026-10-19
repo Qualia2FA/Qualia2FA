@@ -4,8 +4,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -14,13 +16,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +32,6 @@ import dev.qualia.qualia2fa.resources.action_continue
 import dev.qualia.qualia2fa.resources.action_export
 import dev.qualia.qualia2fa.resources.action_export_recovery
 import dev.qualia.qualia2fa.resources.action_import_export
-import dev.qualia.qualia2fa.resources.settings_groups
 import dev.qualia.qualia2fa.resources.action_import_recovery
 import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
@@ -43,9 +44,11 @@ import dev.qualia.qualia2fa.resources.dialog_reset_title
 import dev.qualia.qualia2fa.resources.dialog_save_recovery
 import dev.qualia.qualia2fa.resources.error_passphrase_mismatch
 import dev.qualia.qualia2fa.resources.error_recovery_export
+import dev.qualia.qualia2fa.resources.error_recovery_key_only
 import dev.qualia.qualia2fa.resources.error_recovery_open
 import dev.qualia.qualia2fa.resources.error_recovery_rejected
 import dev.qualia.qualia2fa.resources.error_recovery_save
+import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
 import dev.qualia.qualia2fa.resources.field_passphrase
 import dev.qualia.qualia2fa.resources.field_passphrase_again
 import dev.qualia.qualia2fa.resources.filter_recovery_files
@@ -59,6 +62,7 @@ import dev.qualia.qualia2fa.resources.settings_hardware_backed
 import dev.qualia.qualia2fa.resources.settings_key_store
 import dev.qualia.qualia2fa.resources.settings_language
 import dev.qualia.qualia2fa.resources.settings_license
+import dev.qualia.qualia2fa.resources.settings_theme
 import dev.qualia.qualia2fa.resources.settings_lock_now
 import dev.qualia.qualia2fa.resources.settings_master_key_software
 import dev.qualia.qualia2fa.resources.settings_no_device_identity
@@ -67,14 +71,11 @@ import dev.qualia.qualia2fa.resources.settings_recovery_explainer
 import dev.qualia.qualia2fa.resources.settings_reset
 import dev.qualia.qualia2fa.resources.settings_reset_explainer
 import dev.qualia.qualia2fa.resources.settings_software_backed
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-
-/** The name a recovery key file is offered under; the user may change it. */
-private const val RECOVERY_FILE_NAME = "qualia2fa-recovery.q2fa"
-
-/** The extension of a recovery key file. */
-private const val RECOVERY_FILE_EXTENSION = "q2fa"
 
 /**
  * Where an import is in its two steps.
@@ -128,6 +129,8 @@ fun SettingsScreen(
     masterKeyStore: MasterKeyStore?,
     language: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
+    theme: AppTheme,
+    onSelectTheme: (AppTheme) -> Unit,
     onLock: () -> Unit,
     onImported: (Vault) -> Unit,
     onReset: () -> Unit,
@@ -139,8 +142,8 @@ fun SettingsScreen(
     var importStep by remember { mutableStateOf<ImportStep?>(null) }
     var importing by remember { mutableStateOf(false) }
     var exportingVault by remember { mutableStateOf(false) }
-    var managingGroups by remember { mutableStateOf(false) }
     val picker = rememberFilePicker()
+    val scope = rememberCoroutineScope()
 
     val saveTitle = stringResource(Res.string.dialog_save_recovery)
     val openTitle = stringResource(Res.string.dialog_open_recovery)
@@ -151,43 +154,27 @@ fun SettingsScreen(
     val saveFailed = stringResource(Res.string.error_recovery_save)
     val openFailed = stringResource(Res.string.error_recovery_open)
     val rejected = stringResource(Res.string.error_recovery_rejected)
+    val keyOnly = stringResource(Res.string.error_recovery_key_only)
+    val vaultFailed = stringResource(Res.string.error_recovery_vault_failed)
     val importExportLabel = stringResource(Res.string.action_import_export)
     val exportVaultLabel = stringResource(Res.string.action_export)
 
-    // The import is a screen rather than a button: it shows what the file holds and asks about the
-    // entries that collide before anything is written, and neither fits in a settings row.
-    if (managingGroups) {
-        GroupsScreen(vault = vault, onClose = { managingGroups = false }, onChanged = { onImported(vault) })
-        return
-    }
-
-    if (importing) {
-        ImportScreen(
-            vault = vault,
-            onClose = { importing = false },
-            onApplied = { onImported(vault) },
-        )
-        return
-    }
-
-    // The same shape as the import above: the formats are not equally safe, and what the user is
-    // choosing between has to be readable in full before a file exists.
-    if (exportingVault) {
-        ExportScreen(
-            vault = vault,
-            onClose = { exportingVault = false },
-        )
-        return
-    }
-
     Column(
-        modifier = Modifier.fillMaxSize().padding(Space.l).verticalScroll(rememberScrollState()),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(start = Space.xl, top = Space.l, end = Space.xl)
+                .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Space.l),
     ) {
         ScreenHeader(title = stringResource(Res.string.nav_settings))
 
         SectionCard(title = stringResource(Res.string.settings_language)) {
             LanguageSelector(language = language, onSelect = onSelectLanguage)
+        }
+
+        SectionCard(title = stringResource(Res.string.settings_theme)) {
+            ThemeSelector(theme = theme, onSelect = onSelectTheme)
         }
 
         SectionCard {
@@ -261,12 +248,6 @@ fun SettingsScreen(
             OutlinedButton(onClick = { exportingVault = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(exportVaultLabel)
             }
-            OutlinedButton(
-                onClick = { managingGroups = true },
-                modifier = Modifier.fillMaxWidth().padding(top = Space.s),
-            ) {
-                Text(stringResource(Res.string.settings_groups))
-            }
         }
 
         SectionCard {
@@ -301,6 +282,28 @@ fun SettingsScreen(
         }
 
         MessageLine(message)
+
+        // Keep the end of the page above the floating navigation island.
+        Spacer(Modifier.height(LocalNavigationInset.current))
+    }
+
+    if (importing) {
+        FloatingWindow(onDismiss = { importing = false }) {
+            ImportScreen(
+                vault = vault,
+                onClose = { importing = false },
+                onApplied = { onImported(vault) },
+            )
+        }
+    }
+
+    if (exportingVault) {
+        FloatingWindow(onDismiss = { exportingVault = false }) {
+            ExportScreen(
+                vault = vault,
+                onClose = { exportingVault = false },
+            )
+        }
     }
 
     if (exporting) {
@@ -311,16 +314,20 @@ fun SettingsScreen(
             onDismiss = { exporting = false },
             onConfirm = { passphrase ->
                 exporting = false
-                val file = vault.recoveryFile(passphrase)
-                if (file == null) {
-                    message = exportFailed
-                } else {
-                    picker.saveBytes(RECOVERY_FILE_NAME, saveTitle, filterLabel, RECOVERY_FILE_EXTENSION, file) { path ->
-                        if (path == null) {
-                            message = saveFailed
-                        } else {
-                            message = null
-                            savedTo = path
+                scope.launch {
+                    // The passphrase derivation is deliberately expensive; keep the settings
+                    // screen responsive while it runs.
+                    val file = withContext(Dispatchers.Default) { buildRecoveryBackup(vault, passphrase) }
+                    if (file == null) {
+                        message = exportFailed
+                    } else {
+                        picker.saveBytes(RECOVERY_FILE_NAME, saveTitle, filterLabel, RECOVERY_FILE_EXTENSION, file) { path ->
+                            if (path == null) {
+                                message = saveFailed
+                            } else {
+                                message = null
+                                savedTo = path
+                            }
                         }
                     }
                 }
@@ -382,83 +389,29 @@ fun SettingsScreen(
                 onConfirm = { passphrase ->
                     importStep = null
                     val target = masterKeyStore
-                    val imported = target?.let { Qualia.importRecoveryFile(step.file, passphrase, it) }
-                    if (imported == null) {
+                    if (target == null) {
                         message = rejected
                     } else {
-                        message = null
-                        onImported(imported)
+                        val current = vault.serialize()
+                        scope.launch {
+                            // See the export: the recovery derivation must not block the UI.
+                            val outcome =
+                                withContext(Dispatchers.Default) {
+                                    restoreRecoveryFile(step.file, passphrase, target, current)
+                                }
+                            when (outcome) {
+                                is RecoveryRestore.Recovered -> {
+                                    message = null
+                                    onImported(outcome.vault)
+                                }
+
+                                RecoveryRestore.KeyOnly -> message = keyOnly
+                                RecoveryRestore.VaultFailed -> message = vaultFailed
+                                RecoveryRestore.Rejected -> message = rejected
+                            }
+                        }
                     }
                 },
             )
     }
-}
-
-/**
- * Asks for a passphrase, twice when it is being chosen rather than entered.
- *
- * Twice on export because a typo there is discovered when the file is the only way back, and
- * never before; once on import because a wrong passphrase is reported by the core, which is
- * the only thing that can tell.
- */
-@Composable
-private fun PassphraseDialog(
-    title: String,
-    confirmLabel: String,
-    askTwice: Boolean,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var passphrase by remember { mutableStateOf("") }
-    var repeated by remember { mutableStateOf("") }
-    var mismatch by remember { mutableStateOf(false) }
-    val mismatchText = stringResource(Res.string.error_passphrase_mismatch)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        properties = DialogDefaults,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-                OutlinedTextField(
-                    value = passphrase,
-                    onValueChange = {
-                        passphrase = it
-                        mismatch = false
-                    },
-                    label = { Text(stringResource(Res.string.field_passphrase)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (askTwice) {
-                    OutlinedTextField(
-                        value = repeated,
-                        onValueChange = {
-                            repeated = it
-                            mismatch = false
-                        },
-                        label = { Text(stringResource(Res.string.field_passphrase_again)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (mismatch) MessageLine(mismatchText)
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (askTwice && passphrase != repeated) {
-                        mismatch = true
-                    } else {
-                        onConfirm(passphrase)
-                    }
-                },
-                enabled = passphrase.isNotEmpty(),
-            ) { Text(confirmLabel) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(Res.string.action_cancel)) }
-        },
-    )
 }

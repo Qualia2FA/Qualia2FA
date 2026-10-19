@@ -36,6 +36,12 @@ class IconTest {
             "icon_selected",
             "icon_settings",
             "icon_sync",
+            "icon_visibility",
+            "icon_visibility_off",
+            "icon_group",
+            "icon_expand_more",
+            "icon_chevron_right",
+            "icon_more",
         )
 
     /** The size the icons are drawn at here, which is also the size they are used at. */

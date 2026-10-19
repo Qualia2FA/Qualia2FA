@@ -1,10 +1,13 @@
 package dev.qualia.qualia2fa
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -26,8 +29,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_accept_deletion
+import dev.qualia.qualia2fa.resources.action_collapse
 import dev.qualia.qualia2fa.resources.action_find_on_lan
 import dev.qualia.qualia2fa.resources.action_generate_code
 import dev.qualia.qualia2fa.resources.action_keep_deleted
@@ -87,7 +93,15 @@ import dev.qualia.qualia2fa.resources.sync_lan_send_failed
 import dev.qualia.qualia2fa.resources.sync_lan_sent
 import dev.qualia.qualia2fa.resources.sync_lan_unavailable
 import dev.qualia.qualia2fa.resources.sync_lan_waiting
+import dev.qualia.qualia2fa.resources.sync_heading
+import dev.qualia.qualia2fa.resources.sync_copy_ciphertext
+import dev.qualia.qualia2fa.resources.sync_copy_text
+import dev.qualia.qualia2fa.resources.sync_generate
 import dev.qualia.qualia2fa.resources.sync_my_code_explainer
+import dev.qualia.qualia2fa.resources.sync_read
+import dev.qualia.qualia2fa.resources.sync_read_title
+import dev.qualia.qualia2fa.resources.sync_scan
+import dev.qualia.qualia2fa.resources.sync_code_field
 import dev.qualia.qualia2fa.resources.sync_pair_explainer
 import dev.qualia.qualia2fa.resources.sync_pair_section
 import dev.qualia.qualia2fa.resources.sync_read_explainer
@@ -129,12 +143,10 @@ fun SyncScreen(
     deviceId: String?,
     onChanged: () -> Unit,
 ) {
-    var pairing by remember { mutableStateOf(false) }
+    var pairingExpanded by remember { mutableStateOf(false) }
 
-    if (pairing) {
-        PairNewDeviceScreen(vault = vault, deviceId = deviceId, onDone = { pairing = false })
-        return
-    }
+    // Pairing is a section of this page now; back collapses it instead of leaving the app.
+    PlatformBackHandler(enabled = pairingExpanded) { pairingExpanded = false }
 
     val session = remember(vault, deviceId) { deviceId?.let { Qualia.syncSession(vault, it) } }
 
@@ -197,12 +209,16 @@ fun SyncScreen(
     /** Opens an endpoint and its lobby, which is what looking for devices costs. */
     fun openLan() {
         val id = deviceId ?: return
+        // The multicast hold is taken before any socket exists: the chipset filters group
+        // traffic out of what it hands to the system until the lock is held, and a socket that
+        // joined the group in the meantime is exactly the socket that then hears nothing.
+        multicast.acquire()
         val channel = Qualia.lanChannel(id)
         if (channel == null) {
+            multicast.release()
             message = lanUnavailable
             return
         }
-        multicast.acquire()
         val lobby = channel.openLobby()
         if (lobby == null) {
             multicast.release()
@@ -274,12 +290,17 @@ fun SyncScreen(
     fun sendState(peer: LanPeer) {
         val channel = lanChannel
         val lan = lanSession
-        if (channel == null || lan == null || !channel.remember(peer)) {
+        // The list is refreshed once a second and the peer may have announced itself from a
+        // different interface since the user selected it; the newest address is the one worth
+        // dialling.
+        val target =
+            lanLobby?.peerWith(peer.record)?.takeIf { it.here && it.socket != null } ?: peer
+        if (channel == null || lan == null || !channel.remember(target)) {
             message = lanSendFailed
             return
         }
-        if (lan.send(peer.deviceId)) {
-            lanSentTo = peer.deviceId
+        if (lan.send(target.deviceId)) {
+            lanSentTo = target.deviceId
             message = null
         } else {
             message = lanSendFailed
@@ -319,135 +340,196 @@ fun SyncScreen(
 
     LaunchedEffect(lanLobby) {
         val lobby = lanLobby ?: return@LaunchedEffect
+        var ticks = 0
         while (true) {
+            // A multicast announcement is one datagram with no acknowledgement, and a device
+            // that missed the one sent when this screen opened would otherwise stay invisible
+            // for the whole thirty-second announce period. While the user is looking at the
+            // screen it is announced again at the refresh rate, which is what makes two
+            // devices find each other in seconds rather than fail to find each other at all.
+            if (ticks % LAN_ANNOUNCE_TICKS == 0) lobby.announceNow()
             lanPeers = lobby.peers()
+            ticks += 1
             delay(LAN_LIST_REFRESH_MS)
         }
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(Space.l).verticalScroll(rememberScrollState()),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(start = Space.xl, top = Space.l, end = Space.xl)
+                .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Space.l),
     ) {
         ScreenHeader(title = stringResource(Res.string.nav_sync))
         Hint(stringResource(Res.string.sync_intro))
+        Text(
+            stringResource(Res.string.sync_heading),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
 
-        SectionCard(title = stringResource(Res.string.action_generate_code)) {
-            Hint(stringResource(Res.string.sync_my_code_explainer))
-            Button(onClick = {
-                val code = session.myCodeText()
-                if (code == null) {
-                    message = notSaved
+        val generateCard: @Composable () -> Unit = {
+            SectionCard(title = stringResource(Res.string.action_generate_code)) {
+                Hint(stringResource(Res.string.sync_my_code_explainer))
+                if (myCode == null) {
+                    Button(onClick = {
+                        val code = session.myCodeText()
+                        if (code == null) {
+                            message = notSaved
+                        } else {
+                            myCode = code
+                            message = null
+                        }
+                    }) {
+                        Text(stringResource(Res.string.sync_generate))
+                    }
                 } else {
-                    myCode = code
-                    message = null
-                }
-            }) {
-                Text(stringResource(Res.string.action_generate_code))
-            }
-            myCode?.let { code ->
-                // One code or a sequence of them, decided where every other code is drawn:
-                // what this screen hands over is the text, and how many symbols it takes to
-                // show it is the transport's answer.
-                CodeBlock(code = code, onCopied = { message = copied })
-            }
-        }
-
-        SectionCard(title = stringResource(Res.string.action_merge)) {
-            Hint(stringResource(Res.string.sync_read_explainer))
-            OutlinedTextField(
-                value = peerCode,
-                onValueChange = { peerCode = it },
-                label = { Text(stringResource(Res.string.field_peer_code)) },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Space.m),
-            ) {
-                OutlinedButton(onClick = {
-                    scanner.readCode(
-                        unreadable = unreadableImage,
-                        noCode = noCodeInImage,
-                        onFrame = { collect(it) },
-                        onText = { scanned ->
-                            val payload = completedPayload
-                            completedPayload = null
-                            merge(payload ?: Qualia.unwrapQrText(scanned) ?: scanned)
-                        },
-                        onMessage = { message = it },
+                    // The long ciphertext is not drawn; the QR carries it, and the button is
+                    // the way to put the same text on the clipboard when there is no camera.
+                    CodeBlock(
+                        code = myCode.orEmpty(),
+                        onCopied = { message = copied },
+                        copyLabel = stringResource(Res.string.sync_copy_text),
+                        showText = false,
                     )
-                }) {
-                    Text(stringResource(Res.string.action_scan_code))
                 }
-                collected?.let { (received, expected) ->
-                    Text(stringResource(Res.string.sync_frames_count, received, expected ?: received))
-                }
-            }
-            Button(onClick = { merge(peerCode.trim()) }, enabled = peerCode.isNotBlank()) {
-                Text(stringResource(Res.string.action_merge))
-            }
-
-            if (!outcomeOverLan) {
-                outcome?.let { result -> MergeResult(result) }
             }
         }
 
-        SectionCard(title = stringResource(Res.string.sync_lan_section)) {
-            Hint(stringResource(Res.string.sync_lan_explainer))
-
-            if (lanChannel == null) {
-                Button(onClick = {
-                    permission.request { allowed -> if (allowed) openLan() else message = lanRefused }
-                }) {
-                    Text(stringResource(Res.string.action_find_on_lan))
-                }
-            } else {
-                if (lanPeers.isEmpty()) {
-                    CircularProgressIndicator(modifier = Modifier.size(Space.xl))
-                    Hint(stringResource(Res.string.sync_lan_looking))
-                    Hint(stringResource(Res.string.sync_lan_no_peers))
-                } else {
-                    lanPeers.forEach { peer ->
-                        LanPeerChoice(
-                            peer = peer,
-                            selected = peer.deviceId == lanSelected,
-                            onSelect = { lanSelected = peer.deviceId },
+        val readCard: @Composable () -> Unit = {
+            SectionCard(title = stringResource(Res.string.sync_read_title)) {
+                Hint(stringResource(Res.string.sync_read_explainer))
+                OutlinedTextField(
+                    value = peerCode,
+                    onValueChange = { peerCode = it },
+                    label = { Text(stringResource(Res.string.sync_code_field)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.m),
+                ) {
+                    Button(
+                        onClick = { merge(peerCode.trim()) },
+                        enabled = peerCode.isNotBlank(),
+                    ) {
+                        Text(stringResource(Res.string.sync_read))
+                    }
+                    OutlinedButton(onClick = {
+                        scanner.readCode(
+                            unreadable = unreadableImage,
+                            noCode = noCodeInImage,
+                            onFrame = { collect(it) },
+                            onText = { scanned ->
+                                val payload = completedPayload
+                                completedPayload = null
+                                merge(payload ?: Qualia.unwrapQrText(scanned) ?: scanned)
+                            },
+                            onMessage = { message = it },
                         )
+                    }) {
+                        Text(stringResource(Res.string.sync_scan))
+                    }
+                    collected?.let { (received, expected) ->
+                        Text(stringResource(Res.string.sync_frames_count, received, expected ?: received))
                     }
                 }
 
-                val selected = lanPeers.firstOrNull { it.deviceId == lanSelected }
-                if (selected != null) {
-                    Text(stringResource(Res.string.sync_lan_selected, shortDeviceId(selected.deviceId)))
-                    Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-                        Button(
-                            onClick = { sendState(selected) },
-                            enabled = !lanReceiving && selected.socket != null,
-                        ) {
-                            Text(stringResource(Res.string.action_lan_send_state))
-                        }
-                        OutlinedButton(onClick = { receiveState() }, enabled = !lanReceiving) {
-                            Text(stringResource(Res.string.action_lan_receive_state))
-                        }
-                    }
-                }
-
-                if (lanReceiving) {
-                    CircularProgressIndicator(modifier = Modifier.size(Space.xl))
-                    Hint(stringResource(Res.string.sync_lan_waiting, LAN_RECEIVE_SECONDS))
-                }
-
-                if (outcomeOverLan) {
+                if (!outcomeOverLan) {
                     outcome?.let { result -> MergeResult(result) }
                 }
+            }
+        }
 
-                lanSentTo?.let { device ->
-                    MessageLine(stringResource(Res.string.sync_lan_sent, shortDeviceId(device)), isError = false)
+        val lanCard: @Composable () -> Unit = {
+            SectionCard(title = stringResource(Res.string.sync_lan_section)) {
+                Hint(stringResource(Res.string.sync_lan_explainer))
+
+                if (lanChannel == null) {
+                    Button(onClick = {
+                        permission.request { allowed -> if (allowed) openLan() else message = lanRefused }
+                    }) {
+                        Text(stringResource(Res.string.action_find_on_lan))
+                    }
+                } else {
+                    if (lanPeers.isEmpty()) {
+                        CircularProgressIndicator(modifier = Modifier.size(Space.xl))
+                        Hint(stringResource(Res.string.sync_lan_looking))
+                        Hint(stringResource(Res.string.sync_lan_no_peers))
+                    } else {
+                        lanPeers.forEach { peer ->
+                            LanPeerChoice(
+                                peer = peer,
+                                selected = peer.deviceId == lanSelected,
+                                onSelect = { lanSelected = peer.deviceId },
+                            )
+                        }
+                    }
+
+                    val selected = lanPeers.firstOrNull { it.deviceId == lanSelected }
+                    if (selected != null) {
+                        Text(stringResource(Res.string.sync_lan_selected, shortDeviceId(selected.deviceId)))
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                            Button(
+                                onClick = { sendState(selected) },
+                                enabled = !lanReceiving && selected.socket != null,
+                            ) {
+                                Text(stringResource(Res.string.action_lan_send_state))
+                            }
+                            OutlinedButton(onClick = { receiveState() }, enabled = !lanReceiving) {
+                                Text(stringResource(Res.string.action_lan_receive_state))
+                            }
+                        }
+                    }
+
+                    if (lanReceiving) {
+                        CircularProgressIndicator(modifier = Modifier.size(Space.xl))
+                        Hint(stringResource(Res.string.sync_lan_waiting, LAN_RECEIVE_SECONDS))
+                    }
+
+                    if (outcomeOverLan) {
+                        outcome?.let { result -> MergeResult(result) }
+                    }
+
+                    lanSentTo?.let { device ->
+                        MessageLine(stringResource(Res.string.sync_lan_sent, shortDeviceId(device)), isError = false)
+                    }
+
+                    OutlinedButton(onClick = { closeLan() }, enabled = !lanReceiving) {
+                        Text(stringResource(Res.string.action_stop_lan))
+                    }
                 }
+            }
+        }
 
-                OutlinedButton(onClick = { closeLan() }, enabled = !lanReceiving) {
-                    Text(stringResource(Res.string.action_stop_lan))
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            if (maxWidth >= SYNC_TWO_COLUMN_WIDTH) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Space.l),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(Space.l),
+                    ) {
+                        generateCard()
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(Space.l),
+                    ) {
+                        readCard()
+                        lanCard()
+                    }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(Space.l)) {
+                    generateCard()
+                    readCard()
+                    lanCard()
                 }
             }
         }
@@ -455,7 +537,9 @@ fun SyncScreen(
         if (conflicts.items.isNotEmpty()) {
             // Resolved once per set of conflicts: an arrangement is a list of identifiers, and what
             // the user has to choose between is the names they see on their own screen.
-            val names = remember(conflicts.items) { vault.entries().associate { it.id to it.name } }
+            val names = remember(conflicts.items) {
+                vault.entries().associate { it.id to it.presentedName() }
+            }
             SectionCard(title = stringResource(Res.string.sync_conflict_heading)) {
                 MessageLine(stringResource(Res.string.sync_result_needs_decision, conflicts.items.size))
                 conflicts.items.forEach { conflict ->
@@ -476,16 +560,37 @@ fun SyncScreen(
             }
         }
 
-        SectionCard(title = stringResource(Res.string.sync_pair_section)) {
-            Hint(stringResource(Res.string.sync_pair_explainer))
-            OutlinedButton(onClick = { pairing = true }) {
-                Text(stringResource(Res.string.action_pair_new_device))
-            }
+        Text(
+            stringResource(Res.string.sync_pair_section),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Hint(stringResource(Res.string.sync_pair_explainer))
+        OutlinedButton(onClick = { pairingExpanded = !pairingExpanded }) {
+            Text(
+                stringResource(
+                    if (pairingExpanded) Res.string.action_collapse else Res.string.action_pair_new_device,
+                ),
+            )
+        }
+        if (pairingExpanded) {
+            PairNewDevicePanel(vault = vault, deviceId = deviceId)
         }
 
         MessageLine(message)
+
+        // The bottom navigation island floats over this screen; the end of the page stops above
+        // it, while everything scrolled past is allowed to go under it.
+        Spacer(Modifier.height(LocalNavigationInset.current))
     }
 }
+
+/**
+ * From this content width the sync page puts the generate column beside the read and LAN
+ * columns, as the design does: one tall code on the left, the two things the user reads or
+ * connects with on the right. Below it the cards stack in reading order.
+ */
+private val SYNC_TWO_COLUMN_WIDTH = 700.dp
 
 /**
  * How long a receive waits for the other device's state.
@@ -501,6 +606,15 @@ private val LAN_RECEIVE_SECONDS = (LAN_RECEIVE_TIMEOUT_MS / 1_000L).toInt()
 
 /** How often the list of devices on the network is read while the lobby is open. */
 private const val LAN_LIST_REFRESH_MS = 1_000L
+
+/**
+ * How many list refreshes pass between two announcements.
+ *
+ * Discovery is user-initiated — the screen is open, both devices are in front of the user — so
+ * announcing every couple of seconds is what makes the list fill quickly. The transport's own
+ * thirty-second period remains for a lobby nobody is watching.
+ */
+private const val LAN_ANNOUNCE_TICKS = 2
 
 /**
  * The disagreements waiting for a decision, and the session that reported them.

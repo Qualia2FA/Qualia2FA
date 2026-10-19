@@ -2,16 +2,18 @@ package dev.qualia.qualia2fa
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +39,7 @@ import dev.qualia.qualia2fa.resources.field_pin
 import dev.qualia.qualia2fa.resources.format_html
 import dev.qualia.qualia2fa.resources.format_json
 import dev.qualia.qualia2fa.resources.format_text
+import dev.qualia.qualia2fa.resources.import_choose_format
 import dev.qualia.qualia2fa.resources.import_done
 import dev.qualia.qualia2fa.resources.import_dropped
 import dev.qualia.qualia2fa.resources.import_filter
@@ -99,6 +102,12 @@ private sealed interface ImportStage {
  * The identifiers in [ImportMatch.existing] are resolved to names here, against the vault being
  * imported into: an identifier is what a replacement is expressed in, and a name is what a user
  * can read.
+ *
+ * # The preview scrolls with the page, it is not a list of its own
+ *
+ * Every stage is one column with one scroll. A `LazyColumn` inside it would be handed the
+ * infinite height a vertical scroll gives its children, which Compose refuses to measure; the
+ * preview is therefore a plain column, bounded by the import's own entry limit.
  */
 @Composable
 fun ImportScreen(
@@ -165,83 +174,106 @@ fun ImportScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(Space.l),
-        verticalArrangement = Arrangement.spacedBy(Space.m),
-    ) {
-        ScreenTitle(stringResource(Res.string.action_import_export))
+    /** Opens a file without saying what it is, and lets the bytes decide. */
+    fun openAny() {
+        picker.pickBytes(openTitle, filterLabel, extension = null) { file ->
+            if (file == null) {
+                message = unreadable
+            } else {
+                val detected = Qualia.detectImportFormat(file)
+                if (detected == null) {
+                    message = notRecognised
+                } else {
+                    read(file, detected, null)
+                }
+            }
+        }
+    }
 
-        when (val current = stage) {
-            ImportStage.Choosing -> {
-                Hint(stringResource(Res.string.import_open_title))
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-                    Button(
-                        onClick = {
-                            picker.pickBytes(openTitle, filterLabel, EXPORT_FILE_EXTENSION) { file ->
-                                if (file == null) {
-                                    message = unreadable
-                                } else {
-                                    val detected = Qualia.detectImportFormat(file)
-                                    if (detected == null) {
-                                        message = notRecognised
-                                    } else {
-                                        read(file, detected, null)
+    Column(
+        modifier = Modifier.fillMaxSize().padding(start = Space.xl, top = Space.l, end = Space.xl),
+        verticalArrangement = Arrangement.spacedBy(Space.l),
+    ) {
+        ScreenHeader(title = stringResource(Res.string.action_import_export)) {
+            TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
+        }
+
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Space.l),
+        ) {
+            when (val current = stage) {
+                ImportStage.Choosing -> {
+                    SectionCard(title = openTitle) {
+                        Button(onClick = { openAny() }, modifier = Modifier.fillMaxWidth()) {
+                            Text(openTitle)
+                        }
+                        // The format can also be stated outright: a file that holds one link per
+                        // line is recognisable, but an HTML export whose content was truncated is
+                        // not, and the user is the one who knows what they exported.
+                        Text(
+                            stringResource(Res.string.import_choose_format),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(Space.s),
+                            verticalArrangement = Arrangement.spacedBy(Space.s),
+                        ) {
+                            ImportFormat.entries.forEach { format ->
+                                OutlinedButton(onClick = {
+                                    picker.pickBytes(openTitle, filterLabel, format.extension) { file ->
+                                        if (file != null) read(file, format, null)
                                     }
+                                }) {
+                                    Text(formatLabels.getValue(format))
                                 }
                             }
-                        },
-                    ) { Text(stringResource(Res.string.import_open_title)) }
-                    // The format can also be stated outright: a file that holds one link per line
-                    // is recognisable, but an HTML export whose content was truncated is not, and
-                    // the user is the one who knows what they exported.
-                    ImportFormat.entries.forEach { format ->
-                        TextButton(onClick = { picker.pickBytes(openTitle, filterLabel, EXPORT_FILE_EXTENSION) { file -> if (file != null) read(file, format, null) } }) {
-                            Text(formatLabels.getValue(format))
                         }
                     }
+                    MessageLine(message)
                 }
-                MessageLine(message)
-                TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
-            }
 
-            is ImportStage.Password -> {
-                Text(stringResource(Res.string.import_password_title), style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(Res.string.import_password_hint)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                MessageLine(message)
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-                    Button(onClick = { read(current.bytes, current.format, password) }) {
-                        Text(stringResource(Res.string.action_apply))
+                is ImportStage.Password -> {
+                    SectionCard(title = stringResource(Res.string.import_password_title)) {
+                        SecretField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = stringResource(Res.string.import_password_hint),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = { read(current.bytes, current.format, password) },
+                            enabled = password.isNotEmpty(),
+                        ) {
+                            Text(stringResource(Res.string.action_apply))
+                        }
                     }
-                    TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
+                    MessageLine(message)
                 }
-            }
 
-            is ImportStage.Preview -> {
-                PreviewStage(
-                    vault = vault,
-                    stage = current,
-                    kindLabels = kindLabels,
-                    decisionLabels = decisionLabels,
-                    onDecide = { position, decision ->
-                        stage =
-                            current.copy(
-                                decisions =
-                                    if (decision == null) {
-                                        current.decisions - position
-                                    } else {
-                                        current.decisions + (position to decision)
-                                    },
-                            )
-                    },
-                )
-                MessageLine(message)
-                Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                is ImportStage.Preview -> {
+                    PreviewStage(
+                        vault = vault,
+                        stage = current,
+                        kindLabels = kindLabels,
+                        decisionLabels = decisionLabels,
+                        onDecide = { position, decision ->
+                            stage =
+                                current.copy(
+                                    decisions =
+                                        if (decision == null) {
+                                            current.decisions - position
+                                        } else {
+                                            current.decisions + (position to decision)
+                                        },
+                                )
+                        },
+                    )
+                    MessageLine(message)
                     Button(
                         onClick = {
                             val applied = current.parsed.apply(vault, current.decisions)
@@ -254,28 +286,33 @@ fun ImportScreen(
                             }
                         },
                     ) { Text(stringResource(Res.string.action_apply)) }
-                    TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
+                }
+
+                is ImportStage.Done -> {
+                    SectionCard {
+                        Text(
+                            stringResource(
+                                Res.string.import_done,
+                                current.applied.added,
+                                current.applied.replaced,
+                                current.applied.skipped,
+                            ),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        // The names of the groups the import created or matched. A group the
+                        // vault already had is named too: it is where the imported entries were
+                        // put, which is what the user needs to find them again.
+                        (current.applied.groupsCreated + current.applied.groupsExisting).forEach { name ->
+                            Text(name, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
+                    }
                 }
             }
 
-            is ImportStage.Done -> {
-                Text(
-                    stringResource(
-                        Res.string.import_done,
-                        current.applied.added,
-                        current.applied.replaced,
-                        current.applied.skipped,
-                    ),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                // The names of the groups the import created or matched. A group the vault
-                // already had is named too: it is where the imported entries were put, which is
-                // what the user needs to find them again.
-                (current.applied.groupsCreated + current.applied.groupsExisting).forEach { name ->
-                    Text(name, style = MaterialTheme.typography.bodyMedium)
-                }
-                TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
-            }
+            // The navigation island floats over the bottom of the window, so the end of the
+            // scroll has to stop above it even though the middle of the page may run under it.
+            Spacer(Modifier.height(LocalNavigationInset.current))
         }
     }
 }
@@ -308,22 +345,27 @@ private fun PreviewStage(
     val dropped = stage.parsed.dropped()
     // Resolved once per vault and preview: a decision replaces an entry by identifier, and an
     // identifier is not something a user can read.
-    val names = remember(vault.entryCount, entries.size) { vault.entries().associate { it.id to it.name } }
+    val names = remember(vault.entryCount, entries.size) {
+        vault.entries().associate { it.id to it.presentedName() }
+    }
     val byPosition = stage.matches.associateBy { it.position }
 
     Text(stringResource(Res.string.import_preview_title), style = MaterialTheme.typography.titleMedium)
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(Space.s)) {
-        items(entries, key = { it.position }) { entry ->
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+        entries.forEach { entry ->
             val match = byPosition[entry.position]
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-                        Text(entry.name, style = MaterialTheme.typography.titleMedium)
-                        val service = entry.issuer.takeIf { it.isNotBlank() }
-                        if (service != null) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                        verticalArrangement = Arrangement.spacedBy(Space.xs),
+                    ) {
+                        Text(entry.presentedName(), style = MaterialTheme.typography.titleMedium)
+                        val detail = entry.presentedDetail()
+                        if (detail != null) {
                             Text("·", style = MaterialTheme.typography.bodySmall)
-                            Text(service, style = MaterialTheme.typography.bodySmall)
+                            Text(detail, style = MaterialTheme.typography.bodySmall)
                         }
                         val kindLabel = kindLabels[entry.kind.javaClass]
                         if (kindLabel != null) {
@@ -385,9 +427,6 @@ private fun PreviewStage(
         Hint(stringResource(Res.string.import_dropped, dropped.icons, dropped.periodsAssumed, dropped.duplicates))
     }
 }
-
-/** The extension a file dialog starts on: exports are JSON, HTML or plain text. */
-private const val EXPORT_FILE_EXTENSION = "json"
 
 /** How many unusable rows are listed before the count has to speak for the rest. */
 private const val PROBLEMS_SHOWN = 5

@@ -1,12 +1,15 @@
 package dev.qualia.qualia2fa
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
@@ -16,12 +19,19 @@ import androidx.compose.ui.unit.dp
  * 97×97 modules, and a few hundred rectangles is a very different thing to draw every
  * frame than ten thousand.
  *
- * The view is square and 240 dp on a side by default, which is what a phone camera reads
- * comfortably; the caller decides where it goes, not how big the modules are.
+ * The drawing fills the width it is given, up to [maxSize] and down to whatever the caller's
+ * layout allows, and is always square. A code in a card that shares a row with a form is
+ * therefore smaller than one on a page of its own, without the caller having to measure the
+ * page to decide.
  */
 @Composable
-fun QrCodeView(image: QrImage, modifier: Modifier = Modifier, sizeDp: Int = 240) {
-    Canvas(modifier.size(sizeDp.dp)) {
+fun QrCodeView(image: QrImage, modifier: Modifier = Modifier, maxSize: Dp = 240.dp) {
+    Canvas(
+        modifier
+            .widthIn(max = maxSize)
+            .fillMaxWidth()
+            .aspectRatio(1f),
+    ) {
         val scaleX = size.width / image.width
         val scaleY = size.height / image.height
 

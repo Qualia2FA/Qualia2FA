@@ -221,6 +221,20 @@ class ExportTest {
     }
 
     /**
+     * Each import format names the file extension its exports have.
+     *
+     * The import screen uses this to list one format's files when the user has already said
+     * which one it is, and a file dialog with the wrong extension hides the file the user is
+     * trying to open.
+     */
+    @Test
+    fun theImportFormatsNameTheirExtensions() {
+        assertEquals("json", ImportFormat.Json.extension)
+        assertEquals("html", ImportFormat.Html.extension)
+        assertEquals("txt", ImportFormat.Text.extension)
+    }
+
+    /**
      * An empty vault is written out rather than refused.
      *
      * The screen offers the same four formats whatever the vault holds, and a user who has just

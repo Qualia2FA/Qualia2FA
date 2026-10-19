@@ -687,6 +687,21 @@ enum class ImportFormat {
     Text,
     ;
 
+    /**
+     * The file extension an export of this format carries, without the dot.
+     *
+     * An import screen uses it to list the files of one format when the user has already said
+     * which one the file is. Detecting the format from the content is still what the ordinary
+     * "open an export" path does.
+     */
+    val extension: String
+        get() =
+            when (this) {
+                Json -> "json"
+                Html -> "html"
+                Text -> "txt"
+            }
+
     internal fun toFfi(): FfiImportFormat =
         when (this) {
             Json -> FfiImportFormat.JSON

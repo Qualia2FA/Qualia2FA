@@ -32,7 +32,7 @@
     <string name="first_run_no_hardware_warning">Note: this machine has no hardware key store, so the key that protects the master key is a software one that only your operating system account protects. Continuing means you accept that.</string>
     <string name="first_run_join_explainer">Logging in takes the master key from a device that is already unlocked: that device shows a code, this one turns it into a request, and the reply comes back after the other side confirms. The master key travels out of band, through the code, and never through a server.</string>
     <string name="login_locked_explainer">The vault is locked. Unlocking takes the master key out of the platform key store again; there is no password to type.</string>
-    <string name="login_key_unreadable">This device holds a master key that cannot be read right now. Creating a new vault here would replace it and its entries would be lost, so do not do that before trying the recovery key on another device.</string>
+    <string name="login_key_unreadable">This device holds a master key that cannot be read right now. Creating a new vault here would replace it and its entries would be lost, so restore from a recovery file instead, here or on another device.</string>
     <string name="login_vault_missing">This device holds a master key, but its vault file is gone. Logging in from another device of the same account brings the entries back; creating a vault here would draw a new key and cut this device off from the account.</string>
     <string name="login_reset_hint">If this device can no longer open the vault, resetting it is the way back to a device that can register again or log in from another one.</string>
     <string name="login_reset_text">Resetting deletes everything this device holds for the account: the vault file, the wrapped bytes kept beside it, and the entry in the platform key store that could unwrap them. Entries that were not exported or synced are gone, and this device cannot open that vault again. The device identity is kept, so this device can still log in to the account.</string>
@@ -54,6 +54,9 @@
     <string name="action_import">Import</string>
     <string name="error_link_rejected">This is not an otpauth:// link, or its parameters are not accepted (the secret must be valid Base32).</string>
     <string name="cd_add_entry">Add an entry</string>
+    <string name="cd_manage_groups">Manage groups</string>
+    <string name="cd_expand_group">Expand this group</string>
+    <string name="cd_collapse_group">Collapse this group</string>
     <string name="cd_enter_selection">Select entries</string>
     <string name="cd_selection_all">Select all</string>
     <string name="cd_selection_none">Clear the selection</string>
@@ -87,13 +90,19 @@
     <string name="field_secret">Secret (Base32)</string>
     <string name="field_entry_type">Type</string>
     <string name="settings_groups">Groups</string>
-    <string name="groups_top">Top group</string>
+    <string name="groups_top">Ungrouped</string>
     <string name="groups_top_hint">Entries that belong to no group</string>
     <string name="groups_empty">No entries in this group</string>
     <string name="groups_order_hint">The order of entries inside a group is synchronized: both devices must agree on it.</string>
     <string name="groups_remove_hint">The group is removed, its entries are not: they return to the top group.</string>
     <string name="groups_name_taken">That change was refused. A group's name has to be unique and not empty.</string>
     <string name="action_new_group">New group</string>
+    <string name="groups_subgroup">New subgroup</string>
+    <string name="groups_move_under">Move under group</string>
+    <string name="groups_depth_limit">Groups can be nested at most three levels deep; entries can sit in the deepest one.</string>
+    <string name="groups_drag_hint">Press and hold a row, then drag up or down to move an entry or a group; dropping on a group puts it inside.</string>
+    <string name="groups_invalid_move">That position is not allowed: groups can be at most three levels deep, and a group cannot be put inside itself.</string>
+    <string name="action_more">More</string>
     <string name="action_rename">Rename</string>
     <string name="action_remove">Remove</string>
     <string name="action_move_up">Up</string>
@@ -108,6 +117,7 @@
     <string name="import_filter">Export files</string>
     <string name="import_unreadable">That file could not be read.</string>
     <string name="import_not_recognised">The format was not recognised. Which one is it?</string>
+    <string name="import_choose_format">Or say which format the file is:</string>
     <string name="import_password_title">This export is encrypted</string>
     <string name="import_password_hint">Password</string>
     <string name="import_wrong_password">That password did not open the file.</string>
@@ -171,17 +181,26 @@
     <!-- The platform file dialog -->
     <string name="dialog_pick_image">Choose an image holding a QR code</string>
     <string name="filter_image_files">Images</string>
-    <string name="dialog_save_recovery">Save the recovery key</string>
-    <string name="dialog_open_recovery">Open a recovery key file</string>
-    <string name="filter_recovery_files">Recovery key files</string>
+    <string name="dialog_save_recovery">Save the recovery file</string>
+    <string name="dialog_open_recovery">Open a recovery file</string>
+    <string name="filter_recovery_files">Recovery files</string>
 
     <!-- The local network, which sync and pairing use when both devices share a WiFi -->
     <string name="lan_permission_refused">The system did not allow the local network, so devices on this WiFi cannot be found.</string>
 
     <!-- Sync -->
     <string name="sync_intro">A sync code travels once in each direction: one device shows it, the other reads and merges what it carries. No server is involved — the codes themselves carry the data.</string>
+    <string name="sync_heading">Sync codes</string>
+    <string name="sync_generate">Generate</string>
+    <string name="sync_read_title">Read a sync code</string>
+    <string name="sync_code_field">Sync code text</string>
+    <string name="sync_scan">Scan</string>
+    <string name="sync_read">Read</string>
+    <string name="sync_copy_ciphertext">Copy the ciphertext</string>
+    <string name="sync_copy_text">Copy the text</string>
+    <string name="action_collapse">Collapse</string>
     <string name="sync_error_no_device_identity">This device has no platform identity, so it cannot sync. It was created as a local-only vault, which cannot pair or sync.</string>
-    <string name="sync_my_code_explainer">Hand this code to the other device. After a merge, generate it again: what you hand over is the state at the moment it was generated.</string>
+    <string name="sync_my_code_explainer">Hand this code to the other device. What you hand over is the state at the moment it was generated.</string>
     <string name="action_generate_code">Generate the code</string>
     <string name="sync_read_explainer">Read the other device's code: paste it below, or open the image it was saved as.</string>
     <string name="field_peer_code">The other device's sync code</string>
@@ -242,11 +261,12 @@
     <string name="action_stop_lan">Stop looking</string>
 
     <!-- Pairing a new device, from the sync screen -->
-    <string name="sync_pair_section">Add another device</string>
+    <string name="sync_pair_section">Pairing</string>
     <string name="sync_pair_explainer">The other device shows a request after reading the pairing code; the master key leaves this device only when you confirm.</string>
     <string name="action_pair_new_device">Pair a new device</string>
     <string name="pair_error_no_key_store">Pairing cannot start: this machine has no usable platform key store.</string>
     <string name="pair_intro">Hand the pairing code below to the new device (it is valid for this step only). Once it has read the code, it gives you a request.</string>
+    <string name="pair_code_title">Pairing code</string>
     <string name="action_copy_pairing_code">Copy the pairing code</string>
     <string name="field_joiner_request">The request from the new device</string>
     <string name="action_scan_request">Scan the request</string>
@@ -268,6 +288,8 @@
     <string name="pair_lan_no_identity">This device has no platform identity, so it cannot be found on the network.</string>
     <string name="pair_lan_request_from">The request came over the local network, from device %1$s.</string>
     <string name="pair_lan_reply_sent">The reply was sent back over the local network.</string>
+    <string name="pair_lan_send_failed">The reply could not be sent over the network. The code below still carries it.</string>
+    <string name="pair_lan_code_changed">The pairing code changed with the network setting; the new device has to read it again.</string>
 
     <!-- Logging in on a new device -->
     <string name="join_intro">On a device that is already unlocked, choose “Pair a new device”, then paste the pairing code it shows below.</string>
@@ -302,6 +324,10 @@
     <!-- Settings -->
     <string name="settings_language">Language</string>
     <string name="language_system">Follow the system language</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_system">Follow the system theme</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="settings_key_store">Master key</string>
     <string name="settings_master_key_software">In the platform key store, software protected: only your operating system account protects it</string>
     <string name="settings_device_identity">Device identity</string>
@@ -310,20 +336,24 @@
     <string name="settings_software_backed">not hardware protected</string>
     <string name="settings_core_version">Core library</string>
     <string name="settings_lock_now">Lock now</string>
-    <string name="settings_recovery">Recovery key</string>
-    <string name="settings_recovery_explainer">A recovery key file together with a passphrase you choose can restore the master key if every device is lost. Keep it offline: whoever holds the file and the passphrase holds the account.</string>
-    <string name="action_export_recovery">Export a recovery key…</string>
-    <string name="action_import_recovery">Import a recovery key…</string>
+    <string name="settings_recovery">Recovery file</string>
+    <string name="settings_recovery_explainer">A recovery file stores the master key behind a passphrase you choose, together with the encrypted vault. With it, a new device can get the entries back even if every device is lost. Keep it offline: whoever holds the file and the passphrase holds the account.</string>
+    <string name="action_export_recovery">Export a recovery file…</string>
+    <string name="action_import_recovery">Import a recovery file…</string>
+    <string name="action_recover_from_file">Restore from a recovery file…</string>
+    <string name="action_restore">Restore</string>
     <string name="field_passphrase">Passphrase</string>
     <string name="field_passphrase_again">Passphrase again</string>
     <string name="error_passphrase_mismatch">The two passphrases are not the same.</string>
-    <string name="error_recovery_export">The recovery key could not be created.</string>
-    <string name="error_recovery_save">The recovery key could not be saved.</string>
+    <string name="error_recovery_export">The recovery file could not be created.</string>
+    <string name="error_recovery_save">The recovery file could not be saved.</string>
     <string name="error_recovery_open">The file could not be read.</string>
-    <string name="error_recovery_rejected">Not accepted: the passphrase is wrong, or this file is not a recovery key.</string>
+    <string name="error_recovery_rejected">Not accepted: the passphrase is wrong, or this file is not a recovery file.</string>
+    <string name="error_recovery_key_only">This is an older recovery key: it carries the master key but no entries. The vault on this device could not be opened with it, so nothing was changed. Use a full recovery file, or a vault export, to bring the entries back.</string>
+    <string name="error_recovery_vault_failed">The master key was recovered, but the vault carried by the file did not open with it. The file may be damaged or belong to another account; this device's key was left unchanged.</string>
     <string name="message_recovery_saved">Saved to %1$s</string>
-    <string name="dialog_import_recovery_title">Replace this device's vault?</string>
-    <string name="dialog_import_recovery_text">Importing an account's recovery key replaces what is on this device with that account. Entries that exist only here are not merged, and are lost.</string>
+    <string name="dialog_import_recovery_title">Restore from a recovery file?</string>
+    <string name="dialog_import_recovery_text">The file is opened with its passphrase. A full recovery file replaces this device's vault with the account it carries; an older key-only file can only reopen a vault already on this device. Entries that exist only here are not merged.</string>
     <string name="settings_about">About</string>
     <string name="settings_license">The application is Apache-2.0; the Rust layers it builds on are LGPL-3.0-or-later.</string>
 
@@ -332,9 +362,13 @@
     <string name="settings_reset_explainer">Deletes this device's vault and master key, so that it can register again or log in from another device. Entries that were not exported or synced are lost. The device identity in the platform key store is kept: this repairs the account, not the identity.</string>
     <string name="action_reset_master_key">Reset the master key…</string>
     <string name="dialog_reset_title">Reset the master key?</string>
-    <string name="dialog_reset_text">The vault file and the master key on this device are deleted. If no other device holds this account and no recovery key file exists, its entries are gone for good.</string>
+    <string name="dialog_reset_text">The vault file and the master key on this device are deleted. If no other device holds this account and no recovery file has been exported, its entries are gone for good.</string>
     <string name="action_reset">Reset</string>
     <string name="message_master_key_reset">The master key and the vault were removed. This device is back to its first run.</string>
+
+    <!-- Sensitive fields: secrets, PINs and passphrases -->
+    <string name="cd_show_secret">Show the value</string>
+    <string name="cd_hide_secret">Hide the value</string>
 
     <!-- The scanner -->
     <string name="scan_title">Scan a QR code</string>

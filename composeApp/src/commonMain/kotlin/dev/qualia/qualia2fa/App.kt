@@ -17,11 +17,16 @@ import androidx.compose.ui.text.AnnotatedString
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.dialog_pick_image
 import dev.qualia.qualia2fa.resources.error_no_platform_key_store
+import dev.qualia.qualia2fa.resources.error_recovery_key_only
+import dev.qualia.qualia2fa.resources.error_recovery_rejected
+import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
 import dev.qualia.qualia2fa.resources.error_serialize_failed
 import dev.qualia.qualia2fa.resources.filter_image_files
 import dev.qualia.qualia2fa.resources.message_master_key_reset
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -80,6 +85,7 @@ private sealed interface Phase {
 @Composable
 fun App(storage: VaultStorage?, settings: SettingsStore) {
     var language by remember { mutableStateOf(settings.language()) }
+    var theme by remember { mutableStateOf(settings.theme()) }
     var phase by remember { mutableStateOf<Phase>(Phase.Loading) }
     var vault by remember { mutableStateOf<Vault?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -93,11 +99,19 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
         settings.setLanguage(chosen)
     }
 
+    val selectTheme: (AppTheme) -> Unit = { chosen ->
+        theme = chosen
+        settings.setTheme(chosen)
+    }
+
     // Resolved here because the callbacks below cannot read a resource; the messages they
     // produce are the ones that outlive a screen change.
     val serializeFailed = stringResource(Res.string.error_serialize_failed)
     val noKeyStore = stringResource(Res.string.error_no_platform_key_store)
     val masterKeyReset = stringResource(Res.string.message_master_key_reset)
+    val recoveryKeyOnly = stringResource(Res.string.error_recovery_key_only)
+    val recoveryVaultFailed = stringResource(Res.string.error_recovery_vault_failed)
+    val recoveryRejected = stringResource(Res.string.error_recovery_rejected)
 
     val picker = rememberFilePicker()
     val camera = hasCamera()
@@ -226,6 +240,50 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
     }
 
     /**
+     * Restores an account from a recovery file chosen on the login screen.
+     *
+     * The file carries the encrypted vault as well as the passphrase-protected master key, so
+     * this is the path that works when no vault on this device can be opened. An old key-only
+     * file is still accepted, but it can only reopen the vault this device already has; the
+     * helper leaves the device unchanged when there is nothing to reopen.
+     */
+    fun recoverFrom(file: ByteArray, passphrase: String) {
+        val device = storage
+        val keyStore = device?.masterKeyStore
+        if (device == null || keyStore == null) {
+            message = noKeyStore
+            return
+        }
+
+        scope.launch {
+            // Argon2id is deliberately expensive; running it here would freeze the login
+            // screen for the whole derivation. The file read and the vault open join it off
+            // the main thread, and only the resulting state changes come back to it.
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    restoreRecoveryFile(file, passphrase, keyStore, device.loadVault())
+                }
+            when (outcome) {
+                is RecoveryRestore.Recovered -> {
+                    val data = outcome.vault.serialize()
+                    if (data == null) {
+                        message = serializeFailed
+                    } else {
+                        device.saveVault(data)
+                        vault = outcome.vault
+                        message = null
+                        phase = Phase.Main(Tab.TwoFactor)
+                    }
+                }
+
+                RecoveryRestore.KeyOnly -> message = recoveryKeyOnly
+                RecoveryRestore.VaultFailed -> message = recoveryVaultFailed
+                RecoveryRestore.Rejected -> message = recoveryRejected
+            }
+        }
+    }
+
+    /**
      * Where a master key is written, or `null` when this machine has no platform key store.
      *
      * Read once and handed to the screens rather than read again by each of them: it is the
@@ -262,7 +320,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
         LocalCodeScanner provides scanner,
     ) {
         key(language) {
-            QualiaTheme {
+            QualiaTheme(theme = theme) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (val current = phase) {
                         Phase.Loading -> LoadingScreen()
@@ -323,6 +381,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                 // without an open vault, and those states are exactly the ones
                                 // that have none.
                                 onReset = { resetDevice() },
+                                onRecover = ::recoverFrom,
                             )
 
                         Phase.Joining ->
@@ -359,6 +418,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                         Tab.TwoFactor ->
                                             TwoFactorScreen(
                                                 vault = currentVault,
+                                                settings = settings,
                                                 onPersist = {
                                                     currentVault.serialize()?.let { storage?.saveVault(it) }
                                                 },
@@ -381,6 +441,8 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                                 masterKeyStore = store,
                                                 language = language,
                                                 onSelectLanguage = selectLanguage,
+                                                theme = theme,
+                                                onSelectTheme = selectTheme,
                                                 onLock = { lock(Status.Locked) },
                                                 onImported = { imported ->
                                                     // The account changed under this device: the
