@@ -17,6 +17,7 @@ import androidx.compose.ui.text.AnnotatedString
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.dialog_pick_image
 import dev.qualia.qualia2fa.resources.error_no_platform_key_store
+import dev.qualia.qualia2fa.resources.error_recovery_bare_vault
 import dev.qualia.qualia2fa.resources.error_recovery_key_only
 import dev.qualia.qualia2fa.resources.error_recovery_rejected
 import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
@@ -104,6 +105,24 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
         settings.setTheme(chosen)
     }
 
+    /**
+     * Makes [opened] the vault of this session.
+     *
+     * The 0.2.x group tree is migrated **before** the screen sees the vault: it used to live
+     * beside the preferences, and the vault is where it belongs now. The migrated vault is
+     * written to disk at once, because the write is what makes the setting safe to delete - the
+     * migration already dropped it only after the vault accepted the tree, but the file on disk
+     * still holds the flat arrangement until this save.
+     */
+    fun adopt(opened: Vault) {
+        if (migrateLegacyGroupLayout(settings, opened)) {
+            opened.serialize()?.let { storage?.saveVault(it) }
+        }
+        vault = opened
+        message = null
+        phase = Phase.Main(Tab.TwoFactor)
+    }
+
     // Resolved here because the callbacks below cannot read a resource; the messages they
     // produce are the ones that outlive a screen change.
     val serializeFailed = stringResource(Res.string.error_serialize_failed)
@@ -112,6 +131,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
     val recoveryKeyOnly = stringResource(Res.string.error_recovery_key_only)
     val recoveryVaultFailed = stringResource(Res.string.error_recovery_vault_failed)
     val recoveryRejected = stringResource(Res.string.error_recovery_rejected)
+    val recoveryBareVault = stringResource(Res.string.error_recovery_bare_vault)
 
     val picker = rememberFilePicker()
     val camera = hasCamera()
@@ -204,8 +224,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                         vault = null
                         Phase.Login(LoginMode.Unreadable, null)
                     } else {
-                        vault = opened
-                        message = null
+                        adopt(opened)
                         Phase.Main(Tab.TwoFactor)
                     }
                 }
@@ -240,14 +259,13 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
     }
 
     /**
-     * Restores an account from a recovery file chosen on the login screen.
+     * Restores an account from a portable file chosen on the login screen.
      *
-     * The file carries the encrypted vault as well as the passphrase-protected master key, so
-     * this is the path that works when no vault on this device can be opened. An old key-only
-     * file is still accepted, but it can only reopen the vault this device already has; the
-     * helper leaves the device unchanged when there is nothing to reopen.
+     * The file may be either `.q2fa` shape or the old key-only recovery file: the library
+     * recognizes all three, and this path only has to say what to do with the answer. A plain
+     * `.q2fa` needs no passphrase, which is why the screen accepts an empty one.
      */
-    fun recoverFrom(file: ByteArray, passphrase: String) {
+    fun restoreFrom(file: ByteArray, passphrase: String) {
         val device = storage
         val keyStore = device?.masterKeyStore
         if (device == null || keyStore == null) {
@@ -261,24 +279,23 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
             // the main thread, and only the resulting state changes come back to it.
             val outcome =
                 withContext(Dispatchers.Default) {
-                    restoreRecoveryFile(file, passphrase, keyStore, device.loadVault())
+                    restorePortableFile(file, passphrase, keyStore, device.loadVault())
                 }
             when (outcome) {
-                is RecoveryRestore.Recovered -> {
+                is PortableRestore.Recovered -> {
                     val data = outcome.vault.serialize()
                     if (data == null) {
                         message = serializeFailed
                     } else {
                         device.saveVault(data)
-                        vault = outcome.vault
-                        message = null
-                        phase = Phase.Main(Tab.TwoFactor)
+                        adopt(outcome.vault)
                     }
                 }
 
-                RecoveryRestore.KeyOnly -> message = recoveryKeyOnly
-                RecoveryRestore.VaultFailed -> message = recoveryVaultFailed
-                RecoveryRestore.Rejected -> message = recoveryRejected
+                PortableRestore.KeyOnly -> message = recoveryKeyOnly
+                PortableRestore.BareVault -> message = recoveryBareVault
+                PortableRestore.VaultFailed -> message = recoveryVaultFailed
+                PortableRestore.Rejected -> message = recoveryRejected
             }
         }
     }
@@ -345,9 +362,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                                 message = serializeFailed
                                             } else {
                                                 device.saveVault(data)
-                                                vault = registration.vault
-                                                message = null
-                                                phase = Phase.Main(Tab.TwoFactor)
+                                                adopt(registration.vault)
                                             }
                                         } else {
                                             // The platform key store holds the device identity, and
@@ -360,9 +375,7 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                                 message = noKeyStore
                                             } else {
                                                 device.saveVault(data)
-                                                vault = created
-                                                message = null
-                                                phase = Phase.Main(Tab.TwoFactor)
+                                                adopt(created)
                                             }
                                         }
                                     }
@@ -381,20 +394,18 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                 // without an open vault, and those states are exactly the ones
                                 // that have none.
                                 onReset = { resetDevice() },
-                                onRecover = ::recoverFrom,
+                                onRecover = ::restoreFrom,
                             )
 
                         Phase.Joining ->
                             JoinAccountScreen(
                                 storage = storage,
                                 onJoined = { joined ->
-                                    vault = joined
-                                    message = null
                                     // The account's entries arrive by a sync rather than by the
                                     // login itself, but that is the user's next step, not their
                                     // destination: the device lands where a device always lands,
                                     // and asks for the sync from there.
-                                    phase = Phase.Main(Tab.TwoFactor)
+                                    adopt(joined)
                                 },
                                 onCancel = {
                                     vault = null
@@ -418,7 +429,6 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
                                         Tab.TwoFactor ->
                                             TwoFactorScreen(
                                                 vault = currentVault,
-                                                settings = settings,
                                                 onPersist = {
                                                     currentVault.serialize()?.let { storage?.saveVault(it) }
                                                 },

@@ -102,15 +102,23 @@ class SettingsTest {
     }
 
     @Test
-    fun theGroupLayoutSurvivesANewStoreAndCanBeCleared() {
+    fun theOldGroupLayoutIsReadOnceAndCanBeCleared() {
         val file = temporarySettings()
         val layout = "Q2FAGL1\ng:top|e:one"
 
-        FileSettingsStore(file).setGroupLayout(layout)
-        assertEquals(layout, FileSettingsStore(file).groupLayout())
+        // The key is only read now, to move the tree into the vault; nothing writes it any more.
+        // The `\n` is escaped because the property file syntax treats a raw line break as a new
+        // key, not as part of the value.
+        Files.writeString(file, "group_layout=Q2FAGL1\\ng:top|e:one\n")
+        assertEquals(layout, FileSettingsStore(file).legacyGroupLayout())
 
-        FileSettingsStore(file).setGroupLayout(null)
-        assertEquals(null, FileSettingsStore(file).groupLayout())
+        FileSettingsStore(file).clearLegacyGroupLayout()
+        assertEquals(null, FileSettingsStore(file).legacyGroupLayout())
+        assertEquals(
+            AppTheme.System,
+            FileSettingsStore(file).theme(),
+            "clearing the migrated tree must keep the other preferences",
+        )
     }
 
     @Test

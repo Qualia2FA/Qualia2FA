@@ -40,19 +40,14 @@ class FileSettingsStore(private val path: Path) : SettingsStore {
         write(properties)
     }
 
-    override fun groupLayout(): String? {
+    override fun legacyGroupLayout(): String? {
         val properties = read() ?: return null
         return properties.getProperty(GROUP_LAYOUT_KEY)
     }
 
-    override fun setGroupLayout(layout: String?) {
-        val properties = read() ?: Properties()
-        if (layout == null) {
-            properties.remove(GROUP_LAYOUT_KEY)
-        } else {
-            properties.setProperty(GROUP_LAYOUT_KEY, layout)
-        }
-        write(properties)
+    override fun clearLegacyGroupLayout() {
+        val properties = read() ?: return
+        if (properties.remove(GROUP_LAYOUT_KEY) != null) write(properties)
     }
 
     /** The stored properties, or `null` when there is nothing usable to read. */

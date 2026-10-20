@@ -105,11 +105,10 @@ private val TreeConnectorWidth = 22.dp
 /**
  * The groups as a tree of groups and entries.
  *
- * The tree is stored beside the preferences, because the vault's group records are flat and
- * have no parent field or place for a group between two entries. The depth rule is enforced
- * here: the top group is depth zero, named groups stop at depth three, and entries are allowed
- * in the deepest group. Moving an entry into a group also calls the vault's `assign_to_group`,
- * so the membership that syncs is the one the tree shows.
+ * The tree is part of the vault since format version 4, so every change here is written into the
+ * vault: there is no arrangement stored beside the preferences to keep in step. The depth rule
+ * is enforced by [GroupLayout] and by the vault itself; the two agree, so a move the screen allows
+ * is a move that stores.
  *
  * Rows can be dragged after a long press. Dropping on a group appends the dragged node to that
  * group's children; dropping on an entry inserts before or after it in the entry's parent. The
@@ -119,13 +118,11 @@ private val TreeConnectorWidth = 22.dp
 @Composable
 fun GroupsScreen(
     vault: Vault,
-    layout: GroupLayout,
     onClose: () -> Unit,
-    onLayoutChange: (GroupLayout) -> Unit,
     onChanged: () -> Unit,
 ) {
-    var tree by remember(layout, vault) { mutableStateOf(layout.reconciled(vault)) }
-    var groups by remember(vault, tree) { mutableStateOf(orderedGroups(vault, tree)) }
+    var tree by remember(vault) { mutableStateOf(GroupLayout.fromVault(vault)) }
+    var groups by remember(vault) { mutableStateOf(vault.groups()) }
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
     var creatingParent by remember { mutableStateOf<String?>(null) }
     var renaming by remember { mutableStateOf<Group?>(null) }
@@ -157,11 +154,19 @@ fun GroupsScreen(
             collapsed = collapsed,
         )
 
-    fun publish(next: GroupLayout, vaultChanged: Boolean = false) {
-        tree = next.reconciled(vault)
-        groups = orderedGroups(vault, tree)
-        onLayoutChange(tree)
-        if (vaultChanged) onChanged()
+    /**
+     * Writes [next] into the vault and reloads the tree from what the vault accepted.
+     *
+     * The reload is not a formality: the vault is the truth, and a write that it refused leaves
+     * the view showing something the vault does not hold until the next read.
+     */
+    fun publish(next: GroupLayout) {
+        if (!next.applyTo(vault)) {
+            message = invalidMove
+        }
+        tree = GroupLayout.fromVault(vault)
+        groups = vault.groups()
+        onChanged()
     }
 
     fun siblings(ref: String): Pair<String, Int>? {
@@ -179,7 +184,7 @@ fun GroupsScreen(
             message = invalidMove
             return
         }
-        publish(next, vaultChanged = isEntryRef(ref))
+        publish(next)
     }
 
     fun moveToGroup(ref: String, parentId: String) {
@@ -190,14 +195,7 @@ fun GroupsScreen(
                 message = invalidMove
                 return
             }
-        if (isEntryRef(ref)) {
-            if (!vault.assignToGroup(refId(ref), parentId)) {
-                message = nameTaken
-                return
-            }
-            next.applyEntryOrder(vault)
-        }
-        publish(next, vaultChanged = isEntryRef(ref))
+        publish(next)
     }
 
     val sourceIndex = if (dragRef == null) -1 else rows.indexOfFirst { it.ref == dragRef }
@@ -206,7 +204,6 @@ fun GroupsScreen(
 
     fun drop(sourceRef: String, target: TreeRow) {
         if (target.root) return
-        val source = rows.firstOrNull { it.ref == sourceRef } ?: return
         if (target.ref == sourceRef) return
 
         val parent = if (target.group != null) target.group.id else target.parentId ?: top.id
@@ -223,14 +220,7 @@ fun GroupsScreen(
             message = invalidMove
             return
         }
-        if (isEntryRef(sourceRef) && source.parentId != parent) {
-            if (!vault.assignToGroup(refId(sourceRef), parent)) {
-                message = nameTaken
-                return
-            }
-            next.applyEntryOrder(vault)
-        }
-        publish(next, vaultChanged = isEntryRef(sourceRef))
+        publish(next)
     }
 
     Column(
@@ -481,7 +471,7 @@ fun GroupsScreen(
             onDismiss = { creatingParent = null },
             onConfirm = { name ->
                 creatingParent = null
-                val groupId = vault.createGroup(name)
+                val groupId = vault.createGroupIn(parent, name)
                 if (groupId == null) {
                     message = nameTaken
                 } else {
@@ -489,8 +479,9 @@ fun GroupsScreen(
                         tree.withNewGroup(groupId, parent, tree.childrenOf(parent).size)
                     if (next == null) {
                         message = invalidMove
+                        onChanged()
                     } else {
-                        publish(next, vaultChanged = true)
+                        publish(next)
                     }
                 }
             },
@@ -507,7 +498,8 @@ fun GroupsScreen(
                 if (!vault.renameGroup(group.id, name)) {
                     message = nameTaken
                 } else {
-                    groups = orderedGroups(vault, tree)
+                    groups = vault.groups()
+                    tree = GroupLayout.fromVault(vault)
                     onChanged()
                 }
             },
@@ -563,9 +555,8 @@ fun GroupsScreen(
                     onClick = {
                         removing = null
                         if (vault.removeGroup(group.id)) {
-                            tree = tree.reconciled(vault)
-                            groups = orderedGroups(vault, tree)
-                            onLayoutChange(tree)
+                            tree = GroupLayout.fromVault(vault)
+                            groups = vault.groups()
                             onChanged()
                         } else {
                             message = nameTaken

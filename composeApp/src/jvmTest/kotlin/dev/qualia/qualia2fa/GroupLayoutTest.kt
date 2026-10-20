@@ -2,22 +2,20 @@ package dev.qualia.qualia2fa
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * The tree stored beside the preferences.
+ * The group tree, which lives in the vault since format version 4.
  *
- * These tests keep the shape that the vault cannot express: parent groups, a mixed order of
- * entries and subgroups, and the depth limit. They also pin that a tree read back always
- * agrees with the identifiers the vault still holds.
+ * These tests cover the two things that can go wrong when the tree moved out of the preferences:
+ * a layout that does not describe the vault must write nothing, and the old saved layout has to
+ * arrive in the vault exactly once.
  */
 class GroupLayoutTest {
-    private fun vault(): Vault {
-        val vault = assertNotNull(Qualia.createLocalVault(MemoryStore()))
-        return vault
-    }
+    private fun vault(): Vault = assertNotNull(Qualia.createLocalVault(MemoryStore()))
 
     private fun add(vault: Vault, name: String, secret: String): String =
         assertNotNull(
@@ -25,28 +23,46 @@ class GroupLayoutTest {
         )
 
     @Test
-    fun aTreeSurvivesSerializationWithinTheVault() {
-        val vault = vault()
+    fun aTreeIsWrittenIntoTheVaultAndReadBackFromIt() {
+        val store = MemoryStore()
+        val vault = assertNotNull(Qualia.createLocalVault(store))
         val first = add(vault, "First", "JBSWY3DPEHPK3PXP")
         val second = add(vault, "Second", "GEZDGNBVGY3TQOJQ")
         val work = assertNotNull(vault.createGroup("Work"))
-        val child = assertNotNull(vault.createGroup("Child"))
-        vault.assignToGroup(second, child)
+        val child = assertNotNull(vault.createGroupIn(work, "Child"))
+        assertTrue(vault.assignToGroup(second, child))
 
         var layout = GroupLayout.fromVault(vault)
-        layout = assertNotNull(layout.withMoved(groupRef(child), work, layout.childrenOf(work).size))
         layout = assertNotNull(layout.withMoved(entryRef(first), work, 0))
-        // The tree and the vault must agree about which group the entry belongs to; the tree
-        // only decides its position inside that group.
-        assertTrue(vault.assignToGroup(first, work))
+        assertTrue(layout.applyTo(vault), "the tree must be stored in the vault")
 
-        val stored = layout.serialize()
-        val parsed = GroupLayout.parse(stored, vault)
+        val stored = assertNotNull(vault.groups().firstOrNull { it.id == work })
+        assertEquals(
+            listOf(GroupChild.Entry(first), GroupChild.Group(child)),
+            stored.children,
+            "the mixed order of entries and child groups is what the vault stores",
+        )
+        assertEquals(work, vault.parentOf(child))
+        assertEquals(2, vault.depthOf(child) ?: -1, "the entry's group and the child group nest")
+        assertEquals(
+            work,
+            vault.groupOf(first),
+            "moving an entry in the tree moves its vault membership",
+        )
 
-        assertEquals(listOf(entryRef(first), groupRef(child)), parsed.childrenOf(work))
-        assertEquals(listOf(entryRef(second)), parsed.childrenOf(child))
-        assertEquals(1, parsed.depthOfGroup(work))
-        assertEquals(2, parsed.depthOfGroup(child))
+        // The file carries the tree; opening it gives the same arrangement back.
+        val data = vault.serialize()
+        assertNotNull(data)
+        val reopened = assertNotNull(Qualia.openVault(data, store), "the file opens with the key the store holds")
+        assertEquals(
+            reopened.groups().first { it.top }.id,
+            reopened.parentOf(work),
+            "Work hangs from the top group",
+        )
+        assertEquals(
+            listOf(GroupChild.Entry(first), GroupChild.Group(child)),
+            reopened.groups().first { it.id == work }.children,
+        )
     }
 
     @Test
@@ -73,38 +89,100 @@ class GroupLayoutTest {
     }
 
     @Test
-    fun reconcilingAddsNewIdentifiersAndDropsMissingOnes() {
+    fun aTreeThatNamesSomethingMissingWritesNothing() {
         val vault = vault()
-        val first = add(vault, "First", "JBSWY3DPEHPK3PXP")
-        var layout = GroupLayout.fromVault(vault)
+        val entry = add(vault, "First", "JBSWY3DPEHPK3PXP")
+        val work = assertNotNull(vault.createGroup("Work"))
+        val before = vault.groups().map { it.id to it.children }
 
-        val later = assertNotNull(vault.createGroup("Later"))
-        val second = add(vault, "Second", "GEZDGNBVGY3TQOJQ")
-        vault.assignToGroup(second, later)
-
-        val reconciled = layout.reconciled(vault)
-        assertTrue(groupRef(later) in reconciled.childrenOf(reconciled.rootId))
-        assertTrue(entryRef(second) in reconciled.childrenOf(later))
-        assertTrue(entryRef(first) in reconciled.childrenOf(reconciled.rootId))
-
-        vault.removeEntry(first, 1_700_000_001L)
-        layout = reconciled.reconciled(vault)
-        assertTrue(entryRef(first) !in layout.childrenOf(layout.rootId))
+        // A reference to an entry that is not in the vault, as a screen left open while another
+        // device deleted it would hold.
+        val root = vault.groups().first { it.top }.id
+        val stale =
+            GroupLayout.forTest(
+                root,
+                mapOf(
+                    root to listOf(entryRef(entry), entryRef("00".repeat(16))),
+                    work to emptyList(),
+                ),
+            )
+        assertFalse(stale.applyTo(vault), "a tree the vault cannot hold must be refused")
+        assertEquals(before, vault.groups().map { it.id to it.children }, "and nothing may have been written")
     }
 
     @Test
-    fun applyingTheTreeWritesTheGroupsEntryOrder() {
+    fun aGroupMovesWithItsSubtree() {
+        val vault = vault()
+        val entry = add(vault, "First", "JBSWY3DPEHPK3PXP")
+        val source = assertNotNull(vault.createGroup("Source"))
+        val nested = assertNotNull(vault.createGroupIn(source, "Nested"))
+        val target = assertNotNull(vault.createGroup("Target"))
+        assertTrue(vault.assignToGroup(entry, nested))
+
+        var layout = GroupLayout.fromVault(vault)
+        layout = assertNotNull(
+            layout.withMoved(groupRef(source), target, layout.childrenOf(target).size),
+            "the source group should be allowed under the target",
+        )
+        assertTrue(layout.applyTo(vault))
+
+        assertEquals(target, vault.parentOf(source))
+        assertEquals(source, vault.parentOf(nested))
+        assertEquals(3, vault.depthOf(nested) ?: -1)
+        assertEquals(nested, vault.groupOf(entry), "the subtree keeps its entry")
+    }
+
+    @Test
+    fun theOldLayoutIsMigratedOnceAndThenDeleted() {
         val vault = vault()
         val first = add(vault, "First", "JBSWY3DPEHPK3PXP")
         val second = add(vault, "Second", "GEZDGNBVGY3TQOJQ")
-        val group = assertNotNull(vault.createGroup("Work"))
-        vault.assignToGroup(first, group)
-        vault.assignToGroup(second, group)
+        val work = assertNotNull(vault.createGroup("Work"))
+        assertTrue(vault.assignToGroup(first, work))
 
-        var layout = GroupLayout.fromVault(vault)
-        layout = assertNotNull(layout.withMoved(entryRef(second), group, 0))
-        layout.applyEntryOrder(vault)
+        val settings = RecordingSettings()
+        settings.stored =
+            "Q2FAGL1\n" +
+                "${vault.groups().first { it.top }.id}|e:$first,e:$second\n" +
+                "$work|e:$first\n"
+        assertTrue(migrateLegacyGroupLayout(settings, vault), "the migration must be reported")
+        assertNull(settings.stored, "the old key is deleted only after the write succeeded")
+        assertEquals(
+            listOf(GroupChild.Entry(second), GroupChild.Group(work)),
+            vault.groups().first { it.top }.children,
+            "the saved order is what the top group now holds; the group itself is attached after its entries",
+        )
+        assertEquals(work, vault.groupOf(first))
+    }
 
-        assertEquals(listOf(second, first), vault.groups().single { it.id == group }.entryIds)
+    @Test
+    fun aMissingOrDamagedOldLayoutIsNotAnError() {
+        val vault = vault()
+        add(vault, "First", "JBSWY3DPEHPK3PXP")
+        val settings = RecordingSettings()
+        assertFalse(migrateLegacyGroupLayout(settings, vault), "nothing stored, nothing to migrate")
+
+        settings.stored = "not the old header"
+        assertTrue(migrateLegacyGroupLayout(settings, vault), "an unreadable layout is dropped")
+        assertNull(settings.stored)
+    }
+
+    /** A settings store that keeps the legacy layout in memory. */
+    private class RecordingSettings : SettingsStore {
+        var stored: String? = null
+
+        override fun language(): AppLanguage = AppLanguage.System
+
+        override fun setLanguage(language: AppLanguage) = Unit
+
+        override fun theme(): AppTheme = AppTheme.System
+
+        override fun setTheme(theme: AppTheme) = Unit
+
+        override fun legacyGroupLayout(): String? = stored
+
+        override fun clearLegacyGroupLayout() {
+            stored = null
+        }
     }
 }

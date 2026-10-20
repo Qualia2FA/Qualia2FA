@@ -240,8 +240,8 @@ class SyncTest {
         val ordering = assertNotNull(conflict.ordering, "the two arrangements must be shown")
         // The merge ran on B, so this device is B: the arrangement it wrote is the local one, and
         // the incoming one is what A arranged.
-        assertEquals(listOf(second, first), ordering.local, "this device's arrangement")
-        assertEquals(listOf(first, second), ordering.incoming, "the peer's arrangement")
+        assertEquals(listOf(GroupChild.Entry(second), GroupChild.Entry(first)), ordering.local, "this device's arrangement")
+        assertEquals(listOf(GroupChild.Entry(first), GroupChild.Entry(second)), ordering.incoming, "the peer's arrangement")
         assertEquals("Work", ordering.localName, "the group is named")
         assertTrue(!ordering.top, "this is a named group")
         assertNull(conflict.local, "an arrangement has no entry to show as a side")

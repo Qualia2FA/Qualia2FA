@@ -63,7 +63,7 @@ class ScreenRenderFixture {
                 // The scanner is provided by the window the screen is shown in, and a fixture
                 // has no camera; this one is never asked for anything.
                 CompositionLocalProvider(LocalCodeScanner provides CodeScanner { }) {
-                    QualiaTheme(AppTheme.Light) { TwoFactorScreen(vault, settings, onPersist = {}) }
+                    QualiaTheme(AppTheme.Light) { TwoFactorScreen(vault, onPersist = {}) }
                 }
             }
         val frame = scene.render()

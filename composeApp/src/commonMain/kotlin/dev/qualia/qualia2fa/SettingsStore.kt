@@ -38,9 +38,20 @@ interface SettingsStore {
     /** Remembers the theme the user chose. */
     fun setTheme(theme: AppTheme)
 
-    /** The stored tree of groups and entries, or `null` when no arrangement was saved yet. */
-    fun groupLayout(): String?
+    /**
+     * The group tree a 0.2.x installation kept beside the preferences, or `null`.
+     *
+     * Read **once**, to migrate it into the vault; nothing writes the tree here any more. The
+     * text is the old `Q2FAGL1` form, which names entries and groups by identifier and holds no
+     * secret.
+     */
+    fun legacyGroupLayout(): String?
 
-    /** Remembers the tree of groups and entries. `null` clears it. */
-    fun setGroupLayout(layout: String?)
+    /**
+     * Deletes the migrated tree from the preferences.
+     *
+     * Called only after the tree has been written into the vault: losing the arrangement because
+     * a write failed would turn a migration into data loss.
+     */
+    fun clearLegacyGroupLayout()
 }

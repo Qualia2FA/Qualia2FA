@@ -25,13 +25,14 @@ import androidx.compose.ui.Modifier
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_close
 import dev.qualia.qualia2fa.resources.action_save
-import dev.qualia.qualia2fa.resources.export_carries_groups
 import dev.qualia.qualia2fa.resources.export_drops_groups
 import dev.qualia.qualia2fa.resources.export_encrypted_json_explainer
 import dev.qualia.qualia2fa.resources.export_failed
 import dev.qualia.qualia2fa.resources.export_filter
 import dev.qualia.qualia2fa.resources.export_html_explainer
 import dev.qualia.qualia2fa.resources.export_json_explainer
+import dev.qualia.qualia2fa.resources.export_keeps_tree
+import dev.qualia.qualia2fa.resources.export_keeps_flat_groups
 import dev.qualia.qualia2fa.resources.export_needs_password
 import dev.qualia.qualia2fa.resources.export_password_hint
 import dev.qualia.qualia2fa.resources.export_password_required
@@ -40,11 +41,15 @@ import dev.qualia.qualia2fa.resources.export_plaintext_warning
 import dev.qualia.qualia2fa.resources.export_save_failed
 import dev.qualia.qualia2fa.resources.export_save_title
 import dev.qualia.qualia2fa.resources.export_saved
+import dev.qualia.qualia2fa.resources.export_vault_explainer
+import dev.qualia.qualia2fa.resources.export_encrypted_vault_explainer
 import dev.qualia.qualia2fa.resources.export_text_explainer
 import dev.qualia.qualia2fa.resources.export_title
 import dev.qualia.qualia2fa.resources.format_encrypted_json
 import dev.qualia.qualia2fa.resources.format_html
 import dev.qualia.qualia2fa.resources.format_json
+import dev.qualia.qualia2fa.resources.format_vault
+import dev.qualia.qualia2fa.resources.format_encrypted_vault
 import dev.qualia.qualia2fa.resources.format_text
 import org.jetbrains.compose.resources.stringResource
 
@@ -52,15 +57,17 @@ import org.jetbrains.compose.resources.stringResource
 private const val EXPORT_FILE_NAME = "qualia2fa-export"
 
 /**
- * Writing the vault out in a form another authenticator reads.
+ * Writing the vault out, in one of six formats.
  *
  * # What the user is told before a file exists
  *
- * The four formats are not equally safe, and only [ExportFormat.EncryptedJson] protects
- * anything: the other three hold every secret as it stands, and the HTML export draws each
- * entry's own link - secret included - into a QR code. That is said above the formats, and each
- * one carries its own sentence and its two marks, so the choice is made knowing what it writes
- * rather than discovered afterwards.
+ * The six are not equally safe and not equally complete. The two `.q2fa` containers restore the
+ * whole account - entries, the group tree and the icons - and the **plain one does it because the
+ * master key is inside it in clear**. The four external formats are shapes another authenticator
+ * reads; only the encrypted JSON protects anything, the other three hold every secret as it
+ * stands, and the HTML export draws each entry's own link - secret included - into a QR code.
+ * That is said above the formats, and each one carries its own sentence and its marks, so the
+ * choice is made knowing what it writes.
  *
  * # Where the empty password is stopped
  *
@@ -71,8 +78,9 @@ private const val EXPORT_FILE_NAME = "qualia2fa-export"
  *
  * # Why the whole vault, and nothing narrower
  *
- * The library writes the vault it holds; there is no "selected entries" export to offer, and
- * the groups and their order travel in the two JSON forms (see [ExportFormat.carriesGroups]).
+ * The library writes the vault it holds; there is no "selected entries" export to offer. How much
+ * of the group tree each format keeps is [ExportFormat.groupCarrying], and the marks on every
+ * option say it before the file exists.
  */
 @Composable
 fun ExportScreen(
@@ -80,7 +88,7 @@ fun ExportScreen(
     onClose: () -> Unit,
 ) {
     val picker = rememberFilePicker()
-    var format by remember { mutableStateOf(ExportFormat.Json) }
+    var format by remember { mutableStateOf(ExportFormat.Vault) }
     var password by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var savedTo by remember { mutableStateOf<String?>(null) }
@@ -93,10 +101,13 @@ fun ExportScreen(
     // Resolved while composing: the callback that writes the file runs outside composition,
     // where no resource can be read.
     val needsPasswordMark = stringResource(Res.string.export_needs_password)
-    val carriesGroupsMark = stringResource(Res.string.export_carries_groups)
+    val keepsTreeMark = stringResource(Res.string.export_keeps_tree)
+    val keepsFlatGroupsMark = stringResource(Res.string.export_keeps_flat_groups)
     val dropsGroupsMark = stringResource(Res.string.export_drops_groups)
     val formatLabels =
         mapOf(
+            ExportFormat.Vault to stringResource(Res.string.format_vault),
+            ExportFormat.EncryptedVault to stringResource(Res.string.format_encrypted_vault),
             ExportFormat.Text to stringResource(Res.string.format_text),
             ExportFormat.Json to stringResource(Res.string.format_json),
             ExportFormat.EncryptedJson to stringResource(Res.string.format_encrypted_json),
@@ -104,17 +115,23 @@ fun ExportScreen(
         )
     val formatExplanations =
         mapOf(
+            ExportFormat.Vault to stringResource(Res.string.export_vault_explainer),
+            ExportFormat.EncryptedVault to stringResource(Res.string.export_encrypted_vault_explainer),
             ExportFormat.Text to stringResource(Res.string.export_text_explainer),
             ExportFormat.Json to stringResource(Res.string.export_json_explainer),
             ExportFormat.EncryptedJson to stringResource(Res.string.export_encrypted_json_explainer),
             ExportFormat.Html to stringResource(Res.string.export_html_explainer),
         )
 
-    /** The two facts about [option] a user has to know before choosing it. */
+    /** The facts about [option] a user has to know before choosing it. */
     fun marksOf(option: ExportFormat): String =
         listOfNotNull(
             if (option.needsPassword) needsPasswordMark else null,
-            if (option.carriesGroups) carriesGroupsMark else dropsGroupsMark,
+            when (option.groupCarrying) {
+                GroupCarrying.FullTree -> keepsTreeMark
+                GroupCarrying.FlatGroups -> keepsFlatGroupsMark
+                GroupCarrying.None -> dropsGroupsMark
+            },
         ).joinToString(" · ")
 
     /** Writes the vault in the chosen format to the file the user picks. */
@@ -131,7 +148,11 @@ fun ExportScreen(
             return
         }
         picker.saveBytes(
-            "${EXPORT_FILE_NAME}.${format.extension}",
+            if (format == ExportFormat.Vault || format == ExportFormat.EncryptedVault) {
+                PORTABLE_FILE_NAME
+            } else {
+                "$EXPORT_FILE_NAME.${format.extension}"
+            },
             saveTitle,
             filterLabel,
             format.extension,

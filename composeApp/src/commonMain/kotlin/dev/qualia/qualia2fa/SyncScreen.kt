@@ -55,6 +55,7 @@ import dev.qualia.qualia2fa.resources.nav_sync
 import dev.qualia.qualia2fa.resources.sync_conflict_entry_mismatch
 import dev.qualia.qualia2fa.resources.action_use_incoming_order
 import dev.qualia.qualia2fa.resources.action_use_local_order
+import dev.qualia.qualia2fa.resources.sync_conflict_group
 import dev.qualia.qualia2fa.resources.sync_conflict_ordering
 import dev.qualia.qualia2fa.resources.sync_conflict_ordering_empty
 import dev.qualia.qualia2fa.resources.sync_conflict_ordering_hint
@@ -535,10 +536,13 @@ fun SyncScreen(
         }
 
         if (conflicts.items.isNotEmpty()) {
-            // Resolved once per set of conflicts: an arrangement is a list of identifiers, and what
+            // Resolved once per set of conflicts: an arrangement is a list of references, and what
             // the user has to choose between is the names they see on their own screen.
             val names = remember(conflicts.items) {
                 vault.entries().associate { it.id to it.presentedName() }
+            }
+            val groupNames = remember(conflicts.items) {
+                vault.groups().associate { it.id to (it.name.ifEmpty { "" }) }
             }
             SectionCard(title = stringResource(Res.string.sync_conflict_heading)) {
                 MessageLine(stringResource(Res.string.sync_result_needs_decision, conflicts.items.size))
@@ -546,6 +550,7 @@ fun SyncScreen(
                     ConflictCard(
                         conflict = conflict,
                         names = names,
+                        groupNames = groupNames,
                         onDecide = { takeIncoming ->
                             if (conflicts.decide(conflict.entryId, takeIncoming)) {
                                 conflicts = conflicts.settled()
@@ -698,6 +703,7 @@ private fun LanPeerChoice(peer: LanPeer, selected: Boolean, onSelect: () -> Unit
 private fun ConflictCard(
     conflict: SyncConflict,
     names: Map<String, String>,
+    groupNames: Map<String, String>,
     onDecide: (Boolean) -> Unit,
 ) {
     val ordering = conflict.ordering
@@ -736,8 +742,18 @@ private fun ConflictCard(
                     ),
                 )
             }
-            ArrangementRow(stringResource(Res.string.sync_conflict_ordering_local), ordering.local, names)
-            ArrangementRow(stringResource(Res.string.sync_conflict_ordering_incoming), ordering.incoming, names)
+            ArrangementRow(
+                stringResource(Res.string.sync_conflict_ordering_local),
+                ordering.local,
+                names,
+                groupNames,
+            )
+            ArrangementRow(
+                stringResource(Res.string.sync_conflict_ordering_incoming),
+                ordering.incoming,
+                names,
+                groupNames,
+            )
         } else {
             if (conflict.kind == SyncConflictKind.PeerDeleted && conflict.localIsNewer) {
                 Hint(stringResource(Res.string.sync_conflict_local_is_newer))
@@ -782,14 +798,26 @@ private fun ConflictCard(
  * what the arrangement is about.
  */
 @Composable
-private fun ArrangementRow(label: String, ids: List<String>, names: Map<String, String>) {
+private fun ArrangementRow(
+    label: String,
+    children: List<GroupChild>,
+    names: Map<String, String>,
+    groupNames: Map<String, String>,
+) {
     Column {
         Text(label, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
-        if (ids.isEmpty()) {
+        if (children.isEmpty()) {
             Text(stringResource(Res.string.sync_conflict_ordering_empty))
         } else {
-            ids.forEachIndexed { index, id ->
-                Text("${index + 1}. ${names[id] ?: shortDeviceId(id)}")
+            children.forEachIndexed { index, child ->
+                val text =
+                    when (child) {
+                        is GroupChild.Entry -> names[child.id] ?: shortDeviceId(child.id)
+                        is GroupChild.Group ->
+                            groupNames[child.id]?.takeIf { it.isNotEmpty() }
+                                ?: stringResource(Res.string.sync_conflict_group, shortDeviceId(child.id))
+                    }
+                Text("${index + 1}. $text")
             }
         }
     }

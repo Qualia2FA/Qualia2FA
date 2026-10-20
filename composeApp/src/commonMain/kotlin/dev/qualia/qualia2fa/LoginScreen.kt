@@ -30,18 +30,18 @@ import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_cancel
 import dev.qualia.qualia2fa.resources.action_continue
 import dev.qualia.qualia2fa.resources.action_create_vault
-import dev.qualia.qualia2fa.resources.action_import_recovery
+import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.action_join_existing_account
-import dev.qualia.qualia2fa.resources.action_recover_from_file
+import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
 import dev.qualia.qualia2fa.resources.action_restore
 import dev.qualia.qualia2fa.resources.action_unlock
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
-import dev.qualia.qualia2fa.resources.dialog_open_recovery
+import dev.qualia.qualia2fa.resources.dialog_import_vault
 import dev.qualia.qualia2fa.resources.dialog_reset_title
-import dev.qualia.qualia2fa.resources.filter_recovery_files
+import dev.qualia.qualia2fa.resources.filter_portable_files
 import dev.qualia.qualia2fa.resources.first_run_intro
 import dev.qualia.qualia2fa.resources.first_run_join_explainer
 import dev.qualia.qualia2fa.resources.first_run_no_hardware_warning
@@ -124,13 +124,24 @@ fun LoginScreen(
     var chosenRecovery by remember { mutableStateOf<ByteArray?>(null) }
     var recoveryFile by remember { mutableStateOf<ByteArray?>(null) }
     val picker = rememberFilePicker()
-    val openRecoveryTitle = stringResource(Res.string.dialog_open_recovery)
-    val recoveryFilter = stringResource(Res.string.filter_recovery_files)
+    val openRecoveryTitle = stringResource(Res.string.dialog_import_vault)
+    val recoveryFilter = stringResource(Res.string.filter_portable_files)
 
-    /** Opens a recovery file, and asks for its passphrase once one is chosen. */
+    /**
+     * Opens a portable file, and asks for its passphrase only when it has one.
+     *
+     * A plain `.q2fa` carries the master key as it is, so there is nothing to ask: sending the
+     * user through a password dialog that must stay empty would look like a prompt for a secret
+     * that does not exist. The encrypted form, the old key-only file and anything unrecognized go
+     * through the dialog, and an unrecognized or empty password comes back as a refusal.
+     */
     fun chooseRecoveryFile() {
-        picker.pickBytes(openRecoveryTitle, recoveryFilter, RECOVERY_FILE_EXTENSION) { file ->
-            if (file != null) chosenRecovery = file
+        picker.pickBytes(openRecoveryTitle, recoveryFilter, PORTABLE_FILE_EXTENSION) { file ->
+            if (file == null) return@pickBytes
+            when (Qualia.detectPortableKind(file)) {
+                PortableKind.PlainVault -> onRecover(file, "")
+                else -> chosenRecovery = file
+            }
         }
     }
 
@@ -249,7 +260,7 @@ fun LoginScreen(
 
     recoveryFile?.let { file ->
         PassphraseDialog(
-            title = stringResource(Res.string.action_import_recovery),
+            title = stringResource(Res.string.action_import_vault),
             confirmLabel = stringResource(Res.string.action_restore),
             askTwice = false,
             onDismiss = { recoveryFile = null },
@@ -292,7 +303,7 @@ private fun Actions(
                     Text(stringResource(Res.string.action_join_existing_account))
                 }
                 OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(Res.string.action_recover_from_file))
+                    Text(stringResource(Res.string.action_import_vault))
                 }
                 Hint(stringResource(Res.string.first_run_intro))
                 if (!hardwareBacked) {
@@ -330,7 +341,7 @@ private fun Actions(
                     Text(stringResource(Res.string.action_join_existing_account))
                 }
                 OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(Res.string.action_recover_from_file))
+                    Text(stringResource(Res.string.action_import_vault))
                 }
             }
 
@@ -348,7 +359,7 @@ private fun Actions(
                     Text(stringResource(Res.string.action_join_existing_account))
                 }
                 OutlinedButton(onClick = onRecoverFromFile, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(Res.string.action_recover_from_file))
+                    Text(stringResource(Res.string.action_import_vault))
                 }
             }
         }

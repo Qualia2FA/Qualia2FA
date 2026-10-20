@@ -3,6 +3,7 @@ package dev.qualia.qualia2fa
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -98,12 +99,18 @@ class ExportTest {
         return "$name|$secret"
     }
 
+    /** The four formats that are read back by this application's import path. */
+    private val externalFormats =
+        listOf(ExportFormat.Text, ExportFormat.Json, ExportFormat.EncryptedJson, ExportFormat.Html)
+
     /** How a written file is read back, which is not one to one: both JSON forms are JSON. */
     private fun importFormatOf(format: ExportFormat): ImportFormat =
         when (format) {
             ExportFormat.Text -> ImportFormat.Text
             ExportFormat.Json, ExportFormat.EncryptedJson -> ImportFormat.Json
             ExportFormat.Html -> ImportFormat.Html
+            ExportFormat.Vault, ExportFormat.EncryptedVault ->
+                error("a vault container is restored, not imported as entries")
         }
 
     /** Writes [format] out, reads it back, and answers what a vault holds after applying it. */
@@ -128,7 +135,7 @@ class ExportTest {
         val vault = vaultWithEveryKind()
         assertEquals(written.size, vault.entryCount, "the vault must hold every entry this test writes")
 
-        ExportFormat.entries.forEach { format ->
+        externalFormats.forEach { format ->
             val target = roundTrip(vault, format)
             assertEquals(written.size, target.entryCount, "$format")
             assertEquals(
@@ -153,10 +160,10 @@ class ExportTest {
         val group = assertNotNull(vault.createGroup(GROUP), "the group name must be accepted")
         assertTrue(vault.assignToGroup(first.id, group), "the entry must move into the group")
 
-        ExportFormat.entries.forEach { format ->
+        externalFormats.forEach { format ->
             val target = roundTrip(vault, format)
             val named = target.groups().filter { !it.top }
-            if (format.carriesGroups) {
+            if (format.groupCarrying != GroupCarrying.None) {
                 assertEquals(listOf(GROUP), named.map { it.name }, "$format must carry the group")
                 assertEquals(1, named.single().entryIds.size, "$format must put the entry in its group")
             } else {
@@ -206,16 +213,19 @@ class ExportTest {
     fun theFormatsDescribeThemselves() {
         val expected =
             mapOf(
-                ExportFormat.Text to Triple(false, false, "txt"),
-                ExportFormat.Json to Triple(false, true, "json"),
-                ExportFormat.EncryptedJson to Triple(true, true, "json"),
-                ExportFormat.Html to Triple(false, false, "html"),
+                ExportFormat.Vault to Triple(false, GroupCarrying.FullTree, "q2fa"),
+                ExportFormat.EncryptedVault to Triple(true, GroupCarrying.FullTree, "q2fa"),
+                ExportFormat.Text to Triple(false, GroupCarrying.None, "txt"),
+                ExportFormat.Json to Triple(false, GroupCarrying.FlatGroups, "json"),
+                ExportFormat.EncryptedJson to Triple(true, GroupCarrying.FlatGroups, "json"),
+                ExportFormat.Html to Triple(false, GroupCarrying.None, "html"),
             )
 
         ExportFormat.entries.forEach { format ->
-            val (needsPassword, carriesGroups, extension) = expected.getValue(format)
+            val (needsPassword, groups, extension) = expected.getValue(format)
             assertEquals(needsPassword, format.needsPassword, "$format and its password")
-            assertEquals(carriesGroups, format.carriesGroups, "$format and the groups it carries")
+            assertEquals(groups, format.groupCarrying, "$format and the groups it carries")
+            assertEquals(groups != GroupCarrying.None, format.carriesGroups, "$format and its coarse answer")
             assertEquals(extension, format.extension, "$format and its file name extension")
         }
     }
@@ -248,6 +258,13 @@ class ExportTest {
         ExportFormat.entries.forEach { format ->
             val password = PASSWORD.takeIf { format.needsPassword }
             val bytes = assertNotNull(vault.export(format, password), "$format must write an empty vault out")
+            if (format.groupCarrying == GroupCarrying.FullTree) {
+                val restored =
+                    restorePortableFile(bytes, password.orEmpty(), MemoryStore(), currentVaultData = null)
+                val recovered = assertIs<PortableRestore.Recovered>(restored, "$format must restore the vault")
+                assertEquals(0, recovered.vault.entryCount, "$format must restore an empty vault")
+                return@forEach
+            }
             val parsed = assertNotNull(
                 Qualia.readImport(bytes, importFormatOf(format), password, NOW),
                 "$format must read back as an empty export",

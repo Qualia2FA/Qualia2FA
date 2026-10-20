@@ -29,30 +29,22 @@ import androidx.compose.ui.Modifier
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_cancel
 import dev.qualia.qualia2fa.resources.action_continue
-import dev.qualia.qualia2fa.resources.action_export
-import dev.qualia.qualia2fa.resources.action_export_recovery
-import dev.qualia.qualia2fa.resources.action_import_export
-import dev.qualia.qualia2fa.resources.action_import_recovery
+import dev.qualia.qualia2fa.resources.action_export_vault
+import dev.qualia.qualia2fa.resources.action_import_vault
+import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
 import dev.qualia.qualia2fa.resources.app_name
+import dev.qualia.qualia2fa.resources.dialog_import_plain_vault_hint
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
-import dev.qualia.qualia2fa.resources.dialog_open_recovery
 import dev.qualia.qualia2fa.resources.dialog_reset_text
 import dev.qualia.qualia2fa.resources.dialog_reset_title
-import dev.qualia.qualia2fa.resources.dialog_save_recovery
-import dev.qualia.qualia2fa.resources.error_passphrase_mismatch
-import dev.qualia.qualia2fa.resources.error_recovery_export
+import dev.qualia.qualia2fa.resources.error_recovery_bare_vault
 import dev.qualia.qualia2fa.resources.error_recovery_key_only
-import dev.qualia.qualia2fa.resources.error_recovery_open
 import dev.qualia.qualia2fa.resources.error_recovery_rejected
-import dev.qualia.qualia2fa.resources.error_recovery_save
 import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
-import dev.qualia.qualia2fa.resources.field_passphrase
-import dev.qualia.qualia2fa.resources.field_passphrase_again
-import dev.qualia.qualia2fa.resources.filter_recovery_files
-import dev.qualia.qualia2fa.resources.message_recovery_saved
+import dev.qualia.qualia2fa.resources.filter_portable_files
 import dev.qualia.qualia2fa.resources.nav_settings
 import dev.qualia.qualia2fa.resources.qualia2fa_logo
 import dev.qualia.qualia2fa.resources.settings_about
@@ -66,8 +58,8 @@ import dev.qualia.qualia2fa.resources.settings_theme
 import dev.qualia.qualia2fa.resources.settings_lock_now
 import dev.qualia.qualia2fa.resources.settings_master_key_software
 import dev.qualia.qualia2fa.resources.settings_no_device_identity
-import dev.qualia.qualia2fa.resources.settings_recovery
-import dev.qualia.qualia2fa.resources.settings_recovery_explainer
+import dev.qualia.qualia2fa.resources.settings_import_export
+import dev.qualia.qualia2fa.resources.settings_import_export_explainer
 import dev.qualia.qualia2fa.resources.settings_reset
 import dev.qualia.qualia2fa.resources.settings_reset_explainer
 import dev.qualia.qualia2fa.resources.settings_software_backed
@@ -78,22 +70,22 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Where an import is in its two steps.
+ * Where restoring a portable file is in its steps.
  *
  * Both steps carry the chosen file, and both compare it by content: the `equals` a data class
  * generates compares an array member by reference, which would make two steps holding the same
  * file two different values.
  */
-private sealed interface ImportStep {
+private sealed interface RestoreStep {
     /** The file is chosen; the user is asked whether to replace this device's vault. */
-    data class Confirm(val file: ByteArray) : ImportStep {
+    data class Confirm(val file: ByteArray) : RestoreStep {
         override fun equals(other: Any?): Boolean = other is Confirm && file.contentEquals(other.file)
 
         override fun hashCode(): Int = file.contentHashCode()
     }
 
-    /** Confirmed; the passphrase is being asked for. */
-    data class Passphrase(val file: ByteArray) : ImportStep {
+    /** Confirmed, and the file needs a passphrase before it can be opened. */
+    data class Passphrase(val file: ByteArray) : RestoreStep {
         override fun equals(other: Any?): Boolean = other is Passphrase && file.contentEquals(other.file)
 
         override fun hashCode(): Int = file.contentHashCode()
@@ -101,8 +93,8 @@ private sealed interface ImportStep {
 }
 
 /**
- * Everything that is not an entry: the language, what this device holds, the recovery key and
- * the way out.
+ * Everything that is not an entry: the language, what this device holds, importing and exporting,
+ * and the way out.
  *
  * # What the two facts are for
  *
@@ -111,11 +103,12 @@ private sealed interface ImportStep {
  * that protects the account is hardware or a file, and the alternative is a reassurance that
  * is not true.
  *
- * # Recovery keys
+ * # Import and export are one entry each
  *
- * Exporting writes a file protected by a passphrase; importing replaces this device's vault
- * with the account that file belongs to, which is why it asks twice — once about replacing,
- * once for the passphrase.
+ * Importing is one button that opens one file: a `.q2fa` backup restores the whole account, and
+ * any other file is read as an export from another authenticator and previewed before anything is
+ * written. Exporting is one button with six choices, the two `.q2fa` shapes first and then the
+ * four shapes another application reads.
  */
 @Composable
 fun SettingsScreen(
@@ -136,28 +129,47 @@ fun SettingsScreen(
     onReset: () -> Unit,
 ) {
     var message by remember { mutableStateOf<String?>(null) }
-    var savedTo by remember { mutableStateOf<String?>(null) }
-    var exporting by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
-    var importStep by remember { mutableStateOf<ImportStep?>(null) }
     var importing by remember { mutableStateOf(false) }
     var exportingVault by remember { mutableStateOf(false) }
-    val picker = rememberFilePicker()
+    var restoreStep by remember { mutableStateOf<RestoreStep?>(null) }
     val scope = rememberCoroutineScope()
 
-    val saveTitle = stringResource(Res.string.dialog_save_recovery)
-    val openTitle = stringResource(Res.string.dialog_open_recovery)
-    val filterLabel = stringResource(Res.string.filter_recovery_files)
-    val exportLabel = stringResource(Res.string.action_export_recovery)
-    val importLabel = stringResource(Res.string.action_import_recovery)
-    val exportFailed = stringResource(Res.string.error_recovery_export)
-    val saveFailed = stringResource(Res.string.error_recovery_save)
-    val openFailed = stringResource(Res.string.error_recovery_open)
+    val importLabel = stringResource(Res.string.action_import_vault)
+    val exportLabel = stringResource(Res.string.action_export_vault)
     val rejected = stringResource(Res.string.error_recovery_rejected)
     val keyOnly = stringResource(Res.string.error_recovery_key_only)
+    val bareVault = stringResource(Res.string.error_recovery_bare_vault)
     val vaultFailed = stringResource(Res.string.error_recovery_vault_failed)
-    val importExportLabel = stringResource(Res.string.action_import_export)
-    val exportVaultLabel = stringResource(Res.string.action_export)
+
+    /** Restores [file] into this device, replacing the vault it carries. */
+    fun restore(file: ByteArray, passphrase: String) {
+        val target = masterKeyStore
+        if (target == null) {
+            message = rejected
+            return
+        }
+        val current = vault.serialize()
+        scope.launch {
+            // The passphrase derivation is deliberately expensive; keep the screen responsive
+            // while it runs.
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    restorePortableFile(file, passphrase, target, current)
+                }
+            when (outcome) {
+                is PortableRestore.Recovered -> {
+                    message = null
+                    onImported(outcome.vault)
+                }
+
+                PortableRestore.KeyOnly -> message = keyOnly
+                PortableRestore.BareVault -> message = bareVault
+                PortableRestore.VaultFailed -> message = vaultFailed
+                PortableRestore.Rejected -> message = rejected
+            }
+        }
+    }
 
     Column(
         modifier =
@@ -216,37 +228,13 @@ fun SettingsScreen(
             )
         }
 
-        SectionCard(title = stringResource(Res.string.settings_recovery)) {
-            Hint(stringResource(Res.string.settings_recovery_explainer))
-            OutlinedButton(onClick = { exporting = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(exportLabel)
-            }
-            OutlinedButton(
-                onClick = {
-                    picker.pickBytes(openTitle, filterLabel, RECOVERY_FILE_EXTENSION) { file ->
-                        if (file == null) {
-                            message = openFailed
-                        } else {
-                            message = null
-                            importStep = ImportStep.Confirm(file)
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+        SectionCard(title = stringResource(Res.string.settings_import_export)) {
+            Hint(stringResource(Res.string.settings_import_export_explainer))
+            OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(importLabel)
             }
-            savedTo?.let { path ->
-                MessageLine(stringResource(Res.string.message_recovery_saved, path), isError = false)
-            }
-        }
-
-        SectionCard {
-            OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(importExportLabel)
-            }
             OutlinedButton(onClick = { exportingVault = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(exportVaultLabel)
+                Text(exportLabel)
             }
         }
 
@@ -293,6 +281,15 @@ fun SettingsScreen(
                 vault = vault,
                 onClose = { importing = false },
                 onApplied = { onImported(vault) },
+                onPortableFile = { file ->
+                    importing = false
+                    message = null
+                    // Every `.q2fa` is confirmed first: it replaces the whole account, and that
+                    // is not something to do because a file picker was answered. The plain form
+                    // then needs no passphrase (the file itself is the credential), the other
+                    // two ask for one.
+                    restoreStep = RestoreStep.Confirm(file)
+                },
             )
         }
     }
@@ -304,35 +301,6 @@ fun SettingsScreen(
                 onClose = { exportingVault = false },
             )
         }
-    }
-
-    if (exporting) {
-        PassphraseDialog(
-            title = exportLabel,
-            confirmLabel = exportLabel,
-            askTwice = true,
-            onDismiss = { exporting = false },
-            onConfirm = { passphrase ->
-                exporting = false
-                scope.launch {
-                    // The passphrase derivation is deliberately expensive; keep the settings
-                    // screen responsive while it runs.
-                    val file = withContext(Dispatchers.Default) { buildRecoveryBackup(vault, passphrase) }
-                    if (file == null) {
-                        message = exportFailed
-                    } else {
-                        picker.saveBytes(RECOVERY_FILE_NAME, saveTitle, filterLabel, RECOVERY_FILE_EXTENSION, file) { path ->
-                            if (path == null) {
-                                message = saveFailed
-                            } else {
-                                message = null
-                                savedTo = path
-                            }
-                        }
-                    }
-                }
-            },
-        )
     }
 
     if (resetting) {
@@ -359,59 +327,62 @@ fun SettingsScreen(
         )
     }
 
-    when (val step = importStep) {
+    when (val step = restoreStep) {
         null -> Unit
 
-        is ImportStep.Confirm ->
+        is RestoreStep.Confirm -> {
+            val plain = Qualia.detectPortableKind(step.file) == PortableKind.PlainVault
             AlertDialog(
-                onDismissRequest = { importStep = null },
+                onDismissRequest = { restoreStep = null },
                 properties = DialogDefaults,
                 title = { Text(stringResource(Res.string.dialog_import_recovery_title)) },
-                text = { Text(stringResource(Res.string.dialog_import_recovery_text)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                        Text(stringResource(Res.string.dialog_import_recovery_text))
+                        // Said before the button, because after it the file has been read and
+                        // the account replaced: the plain form is the one that needs the warning.
+                        if (plain) {
+                            Text(
+                                stringResource(Res.string.dialog_import_plain_vault_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                },
                 confirmButton = {
-                    Button(onClick = { importStep = ImportStep.Passphrase(step.file) }) {
+                    Button(
+                        onClick = {
+                            if (plain) {
+                                restoreStep = null
+                                restore(step.file, "")
+                            } else {
+                                restoreStep = RestoreStep.Passphrase(step.file)
+                            }
+                        },
+                    ) {
                         Text(stringResource(Res.string.action_continue))
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { importStep = null }) {
+                    TextButton(onClick = { restoreStep = null }) {
                         Text(stringResource(Res.string.action_cancel))
                     }
                 },
             )
+        }
 
-        is ImportStep.Passphrase ->
+        is RestoreStep.Passphrase ->
             PassphraseDialog(
                 title = importLabel,
                 confirmLabel = importLabel,
                 askTwice = false,
-                onDismiss = { importStep = null },
+                onDismiss = { restoreStep = null },
                 onConfirm = { passphrase ->
-                    importStep = null
-                    val target = masterKeyStore
-                    if (target == null) {
-                        message = rejected
-                    } else {
-                        val current = vault.serialize()
-                        scope.launch {
-                            // See the export: the recovery derivation must not block the UI.
-                            val outcome =
-                                withContext(Dispatchers.Default) {
-                                    restoreRecoveryFile(step.file, passphrase, target, current)
-                                }
-                            when (outcome) {
-                                is RecoveryRestore.Recovered -> {
-                                    message = null
-                                    onImported(outcome.vault)
-                                }
-
-                                RecoveryRestore.KeyOnly -> message = keyOnly
-                                RecoveryRestore.VaultFailed -> message = vaultFailed
-                                RecoveryRestore.Rejected -> message = rejected
-                            }
-                        }
-                    }
+                    restoreStep = null
+                    restore(step.file, passphrase)
                 },
             )
     }
 }
+
+

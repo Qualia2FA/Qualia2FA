@@ -7,10 +7,14 @@ import dev.qualia.qualia2fa.ffi.FfiDecision
 import dev.qualia.qualia2fa.ffi.FfiDeviceKeys
 import dev.qualia.qualia2fa.ffi.FfiDigits
 import dev.qualia.qualia2fa.ffi.FfiEcLevel
+import dev.qualia.qualia2fa.ffi.FfiEntryIcon
 import dev.qualia.qualia2fa.ffi.FfiEntryKind
 import dev.qualia.qualia2fa.ffi.FfiExportFormat
 import dev.qualia.qualia2fa.ffi.FfiFrameCollector
 import dev.qualia.qualia2fa.ffi.FfiException
+import dev.qualia.qualia2fa.ffi.FfiGroupCarrying
+import dev.qualia.qualia2fa.ffi.FfiGroupChild
+import dev.qualia.qualia2fa.ffi.FfiIconMime
 import dev.qualia.qualia2fa.ffi.FfiImport
 import dev.qualia.qualia2fa.ffi.FfiGroup
 import dev.qualia.qualia2fa.ffi.FfiImportChoice
@@ -23,6 +27,7 @@ import dev.qualia.qualia2fa.ffi.FfiLanPeer
 import dev.qualia.qualia2fa.ffi.FfiLogin
 import dev.qualia.qualia2fa.ffi.FfiPayloadKind
 import dev.qualia.qualia2fa.ffi.FfiPlatformKeys
+import dev.qualia.qualia2fa.ffi.FfiPortableKind
 import dev.qualia.qualia2fa.ffi.FfiReceivedMessage
 import dev.qualia.qualia2fa.ffi.FfiRecipient
 import dev.qualia.qualia2fa.ffi.FfiRoster
@@ -42,11 +47,15 @@ import dev.qualia.qualia2fa.ffi.qrEncode as ffiQrEncode
 import dev.qualia.qualia2fa.ffi.FfiVault
 import dev.qualia.qualia2fa.ffi.FfiVaultEntry
 import dev.qualia.qualia2fa.ffi.coreVersion as ffiCoreVersion
+import dev.qualia.qualia2fa.ffi.detectPortableFile as ffiDetectPortableFile
 import dev.qualia.qualia2fa.ffi.exportFormatCarriesGroups as ffiExportFormatCarriesGroups
 import dev.qualia.qualia2fa.ffi.exportFormatExtension as ffiExportFormatExtension
+import dev.qualia.qualia2fa.ffi.exportFormatGroupCarrying as ffiExportFormatGroupCarrying
 import dev.qualia.qualia2fa.ffi.exportFormatNeedsPassword as ffiExportFormatNeedsPassword
 import dev.qualia.qualia2fa.ffi.generateSecretBase32 as ffiGenerateSecretBase32
 import dev.qualia.qualia2fa.ffi.importRecoveryKey as ffiImportRecoveryKey
+import dev.qualia.qualia2fa.ffi.maxGroupDepth as ffiMaxGroupDepth
+import dev.qualia.qualia2fa.ffi.openPortableFile as ffiOpenPortableFile
 import dev.qualia.qualia2fa.ffi.totpCode as ffiTotpCode
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
@@ -180,6 +189,62 @@ sealed interface EntryKind {
 }
 
 /**
+ * The image format of an [EntryIcon].
+ *
+ * The three are the formats the vault stores. Only [Png] and [Jpeg] are drawn: this version has
+ * no SVG renderer, so an [Svg] icon falls back to the same letter badge an entry with no icon
+ * uses.
+ */
+enum class IconMime {
+    /** `image/png`. */
+    Png,
+
+    /** `image/jpeg`. */
+    Jpeg,
+
+    /** `image/svg+xml`, stored and exported but not drawn by this version. */
+    Svg,
+    ;
+
+    internal fun toFfi(): FfiIconMime =
+        when (this) {
+            Png -> FfiIconMime.PNG
+            Jpeg -> FfiIconMime.JPEG
+            Svg -> FfiIconMime.SVG
+        }
+}
+
+private fun FfiIconMime.toFacade(): IconMime =
+    when (this) {
+        FfiIconMime.PNG -> IconMime.Png
+        FfiIconMime.JPEG -> IconMime.Jpeg
+        FfiIconMime.SVG -> IconMime.Svg
+    }
+
+/**
+ * The picture an entry shows beside its name.
+ *
+ * The bytes are the **original file**, exactly as the export carried them: decoding belongs to
+ * the platform, and re-encoding here would change bytes the user may have chosen deliberately.
+ * The type is not a secret, but it is never printed.
+ *
+ * `ByteArray` compares by reference, so [equals] and [hashCode] are written out: two icons that
+ * hold the same bytes are the same icon, which is what a test or a UI comparison expects.
+ */
+class EntryIcon(val mime: IconMime, val bytes: ByteArray) {
+    override fun equals(other: Any?): Boolean =
+        other is EntryIcon && other.mime == mime && other.bytes.contentEquals(bytes)
+
+    override fun hashCode(): Int = 31 * mime.hashCode() + bytes.contentHashCode()
+
+    override fun toString(): String = "EntryIcon($mime, ${bytes.size} bytes)"
+}
+
+private fun FfiEntryIcon.toFacade(): EntryIcon = EntryIcon(mime.toFacade(), bytes)
+
+private fun EntryIcon.toFfi(): FfiEntryIcon = FfiEntryIcon(mime.toFfi(), bytes)
+
+/**
  * One entry, as the user interface sees it.
  *
  * A plain Kotlin value: no generated type crosses this boundary.
@@ -198,6 +263,8 @@ data class Entry(
     val digits: Int,
     val kind: EntryKind,
     val note: String,
+    /** The icon shown beside the name, when an import or a sync brought one. */
+    val icon: EntryIcon? = null,
 ) {
     /**
      * The time step, for the kinds that have one.
@@ -288,13 +355,16 @@ class Vault internal constructor(private val inner: FfiVault) {
      * The bytes come back rather than being written anywhere: where the file goes is the screen's
      * decision, and it is the platform's own save dialog that asks.
      *
-     * **Only [ExportFormat.EncryptedJson] protects anything.** The other three hold every secret
-     * as it stands, because that is what makes them readable by another application. A screen
-     * offering the choice has to say so before the file exists.
+     * **Only the two encrypted forms protect anything.** [ExportFormat.Vault] is the backup that
+     * restores this account on a clean device, and it can do that because the **master key is
+     * inside it in clear**; the three plaintext external forms hold every secret as it stands,
+     * because that is what makes them readable by another application. A screen offering the
+     * choice has to say so before the file exists.
      *
-     * [password] is looked at only by [ExportFormat.EncryptedJson], and there an **empty** string
-     * is refused rather than accepted: a file anybody can open by trying nothing is not protected.
-     * A caller offering that format asks for the password first (see [ExportFormat.needsPassword]).
+     * [password] is looked at only by the encrypted forms, and there an **empty** string is
+     * refused rather than accepted: a file anybody can open by trying nothing is not protected.
+     * A caller offering one of them asks for the password first (see
+     * [ExportFormat.needsPassword]).
      */
     fun export(format: ExportFormat, password: String? = null): ByteArray? =
         try {
@@ -388,8 +458,16 @@ class Vault internal constructor(private val inner: FfiVault) {
         unixTime: Long,
         pin: String? = null,
     ): Boolean {
+        // An edit form has no icon field in this version, so the stored picture is carried over:
+        // replacing an entry with a new `FfiVaultEntry` that omits it would delete it on save.
+        val icon =
+            try {
+                inner.entry(id)?.icon?.toFacade()
+            } catch (_: Exception) {
+                null
+            }
         val entry =
-            buildEntry(id, name, issuer, account, secretBase32, algorithm, digits, kind, note, pin)
+            buildEntry(id, name, issuer, account, secretBase32, algorithm, digits, kind, note, pin, icon)
                 ?: return false
         return try {
             inner.updateEntry(entry, unixTime.toULong())
@@ -400,11 +478,10 @@ class Vault internal constructor(private val inner: FfiVault) {
     }
 
     /**
-     * The groups, the top group first and then the named ones in the order they are shown in.
+     * The groups in **pre-order**: the top group first, then each group's children depth-first.
      *
-     * Sorted here rather than left to the caller: the library numbers the top group and the first
-     * named group both zero, so sorting every group by that number alone would leave the top
-     * group's place to a tie-break.
+     * That is the tree the library stores and the order the screens draw; there is no sort here,
+     * because sorting would be a second opinion about the arrangement.
      */
     fun groups(): List<Group> =
         try {
@@ -412,13 +489,37 @@ class Vault internal constructor(private val inner: FfiVault) {
                 Group(
                     id = it.id,
                     name = it.name,
-                    order = it.order.toInt(),
                     top = it.top,
+                    children = it.children.map { child -> child.toFacade() },
                     entryIds = it.entryIds,
                 )
             }
         } catch (_: Exception) {
             emptyList()
+        }
+
+    /** The ordered children of one group, or `null` when there is no such group. */
+    fun childrenOf(groupId: String): List<GroupChild>? =
+        try {
+            inner.childrenOf(groupId)?.map { child -> child.toFacade() }
+        } catch (_: Exception) {
+            null
+        }
+
+    /** The parent of a named group, or `null` for the top group and an unknown identifier. */
+    fun parentOf(groupId: String): String? =
+        try {
+            inner.parentOf(groupId)
+        } catch (_: Exception) {
+            null
+        }
+
+    /** The depth of a group: the top group is 0, its named children 1, and so on. */
+    fun depthOf(groupId: String): Int? =
+        try {
+            inner.depthOf(groupId)?.toInt()
+        } catch (_: Exception) {
+            null
         }
 
     /** The identifier of the group [entryId] is in, or `null` when the entry does not exist. */
@@ -429,10 +530,18 @@ class Vault internal constructor(private val inner: FfiVault) {
             null
         }
 
-    /** Creates a named group and returns its identifier, or `null` when the name is refused. */
+    /** Creates a named group under the top group and returns its identifier. */
     fun createGroup(name: String): String? =
         try {
             inner.createGroup(name)
+        } catch (_: Exception) {
+            null
+        }
+
+    /** Creates a named group as the last child of [parentId], or returns `null` when refused. */
+    fun createGroupIn(parentId: String, name: String): String? =
+        try {
+            inner.createGroupIn(parentId, name)
         } catch (_: Exception) {
             null
         }
@@ -447,20 +556,22 @@ class Vault internal constructor(private val inner: FfiVault) {
         }
 
     /**
-     * Moves a group to [position] among the **named** groups, counted from zero, and shifts the
-     * others: the numbers are an order, not values a caller may leave gaps in.
+     * Writes the whole child list of a group: the one call behind every move.
+     *
+     * A list is a sequence, so a move, an insertion or a removal is a single write with no
+     * intermediate state. Children the new list drops are not deleted: an entry returns to the top
+     * group and a child group moves to this group's parent.
      */
-    fun moveGroup(groupId: String, position: Int): Boolean =
+    fun setChildren(groupId: String, children: List<GroupChild>): Boolean =
         try {
-            inner.moveGroup(groupId, position.toULong())
+            inner.setChildren(groupId, children.map { child -> child.toFfi() })
             true
         } catch (_: Exception) {
             false
         }
 
     /**
-     * Removes a group. Its entries are **not** removed: they return to the top group, which is
-     * what makes removing a group a tidying action rather than a destructive one.
+     * Removes a group. Nothing is deleted: its children move to its parent, keeping their place.
      */
     fun removeGroup(groupId: String): Boolean =
         try {
@@ -470,7 +581,7 @@ class Vault internal constructor(private val inner: FfiVault) {
             false
         }
 
-    /** Writes the order of the entries in one group. Every entry of the group must be listed. */
+    /** Writes the order of the entries in one group, keeping its child groups where they are. */
     fun setOrdering(groupId: String, entryIds: List<String>): Boolean =
         try {
             inner.setOrdering(groupId, entryIds)
@@ -479,7 +590,7 @@ class Vault internal constructor(private val inner: FfiVault) {
             false
         }
 
-    /** Moves one entry into a group. */
+    /** Moves one entry into a group, appending it there. */
     fun assignToGroup(entryId: String, groupId: String): Boolean =
         try {
             inner.assignToGroup(entryId, groupId)
@@ -565,6 +676,7 @@ private fun buildEntry(
     kind: EntryKind,
     note: String,
     pin: String? = null,
+    icon: EntryIcon? = null,
 ): FfiVaultEntry? {
     val ffiDigits = digitsOf(digits) ?: return null
     return FfiVaultEntry(
@@ -582,6 +694,7 @@ private fun buildEntry(
         pinSet = !pin.isNullOrEmpty(),
         createdAt = 0uL,
         updatedAt = 0uL,
+        icon = icon?.toFfi(),
     )
 }
 
@@ -603,6 +716,7 @@ private fun FfiVaultEntry.toEntry(): Entry =
         digits = digits.toCount(),
         kind = kind.toFacade(pinSet),
         note = note,
+        icon = icon?.toFacade(),
     )
 
 /**
@@ -720,16 +834,29 @@ private fun FfiImportFormat.toFacade(): ImportFormat =
 /**
  * A format the vault can be written out in.
  *
- * The four are the shapes another authenticator reads, which is why they are the same four the
- * import accepts. They are **not equally safe**: only [EncryptedJson] protects anything, and the
- * other three hold every secret as it stands. The screen that writes one has to say so before the
- * file exists.
+ * The six are the screen's numbered choices, in the order it offers them: the two `.q2fa`
+ * containers, which restore this application's own data, and then the four shapes another
+ * authenticator reads. They are **not equally safe and not equally complete**: only the two
+ * encrypted forms protect anything, the plain vault container holds the master key in clear
+ * because that is what makes it restorable, and the text and HTML forms carry no group at all.
+ * The screen that writes one has to say so before the file exists.
  */
 enum class ExportFormat {
+    /**
+     * A plain `.q2fa`: the master key in clear plus the whole vault.
+     *
+     * This is the backup that restores entries, the group tree and the icons on a clean device.
+     * Whoever holds the file holds the master key.
+     */
+    Vault,
+
+    /** A passphrase-protected `.q2fa`: the same pair with the master key wrapped by a passphrase. */
+    EncryptedVault,
+
     /** One `otpauth://` link per line. Carries no name, no note and no group. */
     Text,
 
-    /** The JSON export: every field, the groups and their order included. */
+    /** The JSON export: every field, the flat groups and the icons included. */
     Json,
 
     /** The JSON export, locked with a password. */
@@ -753,25 +880,59 @@ enum class ExportFormat {
      */
     val needsPassword: Boolean get() = ffiExportFormatNeedsPassword(toFfi())
 
-    /** The file name extension, without the dot. Both JSON forms share one. */
+    /** The file name extension, without the dot. Both JSON forms and both vault forms share one. */
     val extension: String get() = ffiExportFormatExtension(toFfi())
 
     /**
-     * Whether the groups and the order inside them travel with this format.
+     * Whether the groups travel with this format **at all**.
      *
-     * Only the two JSON forms carry them. The others keep the order of the entries and lose which
-     * group each one came from, which the screen offering them says rather than leaving the user
-     * to find out after importing the file somewhere else.
+     * A coarse answer; [groupCarrying] is what the screen labels a format with, because the JSON
+     * forms keep the group names and lose the nesting.
      */
     val carriesGroups: Boolean get() = ffiExportFormatCarriesGroups(toFfi())
 
+    /** How much of the group tree this format carries. */
+    val groupCarrying: GroupCarrying
+        get() =
+            when (ffiExportFormatGroupCarrying(toFfi())) {
+                FfiGroupCarrying.NONE -> GroupCarrying.None
+                FfiGroupCarrying.FLAT_GROUPS -> GroupCarrying.FlatGroups
+                FfiGroupCarrying.FULL_TREE -> GroupCarrying.FullTree
+            }
+
     internal fun toFfi(): FfiExportFormat =
         when (this) {
+            Vault -> FfiExportFormat.VAULT
+            EncryptedVault -> FfiExportFormat.ENCRYPTED_VAULT
             Text -> FfiExportFormat.TEXT
             Json -> FfiExportFormat.JSON
             EncryptedJson -> FfiExportFormat.ENCRYPTED_JSON
             Html -> FfiExportFormat.HTML
         }
+
+    companion object {
+        /** The formats in the order the export screen offers them. */
+        val ALL: List<ExportFormat> =
+            listOf(Vault, EncryptedVault, Text, Json, EncryptedJson, Html)
+    }
+}
+
+/**
+ * How much of the group tree an export format keeps.
+ *
+ * `None` is a list or a table with nowhere to put a group; `FlatGroups` is the JSON forms, which
+ * keep the group names and which entry belongs to which but lose the nesting; `FullTree` is the
+ * two `.q2fa` containers, which restore the tree exactly.
+ */
+enum class GroupCarrying {
+    /** The format has nowhere to put a group. */
+    None,
+
+    /** The named groups travel as one flat level, without the nesting. */
+    FlatGroups,
+
+    /** The whole tree travels: parents, nesting and the mixed order. */
+    FullTree,
 }
 
 /**
@@ -801,23 +962,43 @@ data class ImportedEntry(
 /** A row the reader could not use, and why. The reason never quotes a secret. */
 data class ImportProblem(val position: Int, val reason: String)
 
+/** One child of a group: an entry or another group. */
+sealed interface GroupChild {
+    /** An entry listed in a group. */
+    data class Entry(val id: String) : GroupChild
+
+    /** A named group whose children hang from this one. */
+    data class Group(val id: String) : GroupChild
+}
+
+private fun FfiGroupChild.toFacade(): GroupChild =
+    when (this) {
+        is FfiGroupChild.Entry -> GroupChild.Entry(id)
+        is FfiGroupChild.Group -> GroupChild.Group(id)
+    }
+
+private fun GroupChild.toFfi(): FfiGroupChild =
+    when (this) {
+        is GroupChild.Entry -> FfiGroupChild.Entry(id)
+        is GroupChild.Group -> FfiGroupChild.Group(id)
+    }
+
 /**
- * A group of entries.
+ * A group: a name and the ordered list of its children.
  *
  * A group is an **ordered** collection, not a set: the order is what the user arranged, it is
  * synchronized between devices, and two devices that arranged the same group differently is a
  * conflict the sync screen has to show. The top group holds the entries that belong to no named
- * group, and its name is empty.
+ * group, it is the root of the tree, and its name is empty.
  *
- * [order] is the library's own numbering, in which the top group and the first named group are
- * both zero - the top group stands outside the named sequence. Consumers therefore sort by
- * "top first, then by [order]", which is the order [Vault.groups] already returns.
+ * [children] is the truth: entries and child groups mixed in display order. [entryIds] is a
+ * derived view of just the entries, for the callers that only arrange entries.
  */
 data class Group(
     val id: String,
     val name: String,
-    val order: Int,
     val top: Boolean,
+    val children: List<GroupChild>,
     val entryIds: List<String>,
 )
 
@@ -955,6 +1136,57 @@ class Import internal constructor(private val inner: FfiImport) {
             null
         }
 }
+
+/**
+ * What a `.q2fa` file turned out to be.
+ *
+ * Judged by the magic only: the contents are checked when the file is opened, and the encrypted
+ * form still needs its passphrase. What the interface needs before it asks anything is exactly
+ * this: whether to show a password field, whether the file is a full backup, or whether it is the
+ * old key-only shape.
+ */
+enum class PortableKind {
+    /** The master key in clear plus the vault: the backup that needs no passphrase. */
+    PlainVault,
+
+    /** The passphrase-wrapped master key plus the vault. */
+    EncryptedVault,
+
+    /** The old key-only recovery file: no entries of its own. */
+    KeyOnly,
+}
+
+/** What opening a portable file produced. */
+sealed interface PortableRestore {
+    /** The master key was stored and the vault the file carried was opened. */
+    data class Recovered(val vault: Vault) : PortableRestore
+
+    /**
+     * The file was an old key-only recovery file.
+     *
+     * Nothing was written: the key is only useful against a vault this device already has.
+     */
+    data object KeyOnly : PortableRestore
+
+    /**
+     * The file is a bare vault file.
+     *
+     * It carries ciphertext but **no master key**, so importing it would replace the local vault
+     * with something the local key probably cannot open. The screen says what to export instead.
+     */
+    data object BareVault : PortableRestore
+
+    /** The file, the container version or the passphrase was refused. Nothing was written. */
+    data object Rejected : PortableRestore
+
+    /**
+     * The master key was recovered but did not open the vault the file carries.
+     *
+     * The previous key has been put back, so the device is as it was.
+     */
+    data object VaultFailed : PortableRestore
+}
+
 /**
  * The narrow facade over the generated UniFFI bindings.
  *
@@ -1078,6 +1310,67 @@ object Qualia {
         } catch (_: Exception) {
             null
         }
+
+    /**
+     * What a `.q2fa` file turned out to be, judged by its magic.
+     *
+     * `null` means the file is not one of the portable shapes. A bare vault file in particular
+     * answers `null`: it holds ciphertext but no master key, so it cannot be imported as a
+     * backup.
+     */
+    fun detectPortableKind(file: ByteArray): PortableKind? =
+        try {
+            when (ffiDetectPortableFile(file)) {
+                FfiPortableKind.PLAIN_VAULT -> PortableKind.PlainVault
+                FfiPortableKind.ENCRYPTED_VAULT -> PortableKind.EncryptedVault
+                FfiPortableKind.KEY_ONLY -> PortableKind.KeyOnly
+                null -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * Restores this account from a portable `.q2fa` file.
+     *
+     * The library writes the recovered master key into [store] and opens the vault the file
+     * carries; when the vault does not open, it puts the previous key back, so a damaged or
+     * mismatched file never leaves the device on a key that opens nothing.
+     *
+     * Returns [PortableRestore.KeyOnly] for the old key-only shape, which carries no entries and
+     * writes nothing; a caller that has a local vault may still use
+     * [importRecoveryFile] on such a file. Every other refusal is a case of its own, because the
+     * screen says something different for each.
+     */
+    fun restorePortable(
+        file: ByteArray,
+        password: String?,
+        store: MasterKeyStore,
+    ): PortableRestore =
+        try {
+            val restored =
+                ffiOpenPortableFile(file, password?.takeIf { it.isNotEmpty() }, StoreBridge(store))
+            val vault = restored.vault
+            if (vault != null) PortableRestore.Recovered(Vault(vault)) else PortableRestore.KeyOnly
+        } catch (error: FfiException) {
+            when (val kind = (error as? FfiException.Core)?.detail?.kind) {
+                "portable_vault_file_without_key" -> PortableRestore.BareVault
+                // The container itself opened, so what failed is the vault it carries: damaged,
+                // from another account, or written by a version this build does not read. The
+                // library has already put the previous key back.
+                else ->
+                    if (kind != null && kind.startsWith("vault_")) {
+                        PortableRestore.VaultFailed
+                    } else {
+                        PortableRestore.Rejected
+                    }
+            }
+        } catch (_: Exception) {
+            PortableRestore.Rejected
+        }
+
+    /** The deepest a named group may be nested; the top group is depth zero. */
+    val maxGroupDepth: Int get() = ffiMaxGroupDepth().toInt()
 
     /** Starts the host side of a pairing: the text it returns is what goes into the code. */
     fun beginPairing(): PairingHost? =
@@ -1507,17 +1800,20 @@ data class SyncConflict(
 /**
  * Two devices arranged one group differently.
  *
- * Both arrangements say which entries are in the group and in which order. The group's name is
- * carried on each side because a rename is one of the ways an arrangement can disagree, and the
- * top group - the one entries belong to when they belong to no named one - has no name on either
- * side, which is what [top] says.
+ * Both arrangements are the whole child list - entries and child groups mixed - in display order.
+ * The group's name is carried on each side because a rename is one of the ways an arrangement can
+ * disagree, and the top group - the one entries belong to when they belong to no named one - has
+ * no name on either side, which is what [top] says.
+ *
+ * Moving a group between parents rewrites two lists, so one move can produce **two** of these,
+ * about two different groups.
  */
 data class OrderingConflict(
     val localName: String,
     val incomingName: String,
     val top: Boolean,
-    val local: List<String>,
-    val incoming: List<String>,
+    val local: List<GroupChild>,
+    val incoming: List<GroupChild>,
 )
 
 /** The shape of a disagreement, with a fallback for shapes a newer library may report. */
@@ -1948,8 +2244,8 @@ private fun FfiConflict.toConflict(): SyncConflict =
                     localName = it.localName,
                     incomingName = it.incomingName,
                     top = it.top,
-                    local = it.local,
-                    incoming = it.incoming,
+                    local = it.local.map { child -> child.toFacade() },
+                    incoming = it.incoming.map { child -> child.toFacade() },
                 )
             },
     )

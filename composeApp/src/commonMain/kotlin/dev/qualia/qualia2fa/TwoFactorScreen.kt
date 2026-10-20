@@ -153,12 +153,12 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun TwoFactorScreen(
     vault: Vault,
-    settings: SettingsStore,
     onPersist: () -> Unit,
 ) {
-    var layout by remember(vault) { mutableStateOf(GroupLayout.parse(settings.groupLayout(), vault)) }
     var entries by remember(vault) { mutableStateOf(vault.entries()) }
-    var groups by remember(vault) { mutableStateOf(orderedGroups(vault, layout)) }
+    // The tree lives in the vault; this is the pre-order walk the list draws, and it is re-read
+    // after anything that can change it.
+    var groups by remember(vault) { mutableStateOf(vault.groups()) }
     var collapsedGroups by remember { mutableStateOf(emptySet<String>()) }
     var managingGroups by remember { mutableStateOf(false) }
     // The second the codes and the countdowns are read at, as a state rather than as a value: a
@@ -201,22 +201,10 @@ fun TwoFactorScreen(
         message = null
     }
 
-    /** Applies a tree change, writes the vault order it implies, and remembers it. */
-    fun applyLayout(next: GroupLayout) {
-        layout = next.reconciled(vault)
-        layout.applyEntryOrder(vault)
-        settings.setGroupLayout(layout.serialize())
-        entries = vault.entries()
-        groups = orderedGroups(vault, layout)
-        onPersist()
-    }
-
-    /** Re-reads the entries after anything wrote to the vault. */
+    /** Re-reads the entries and the tree after anything wrote to the vault. */
     fun refresh() {
-        layout = layout.reconciled(vault)
-        settings.setGroupLayout(layout.serialize())
         entries = vault.entries()
-        groups = orderedGroups(vault, layout)
+        groups = vault.groups()
         onPersist()
     }
 
@@ -371,8 +359,28 @@ fun TwoFactorScreen(
         val entryById = entries.associateBy { it.id }
         val groupedIds = groups.flatMap { it.entryIds }.toSet()
         val orphans = entries.filter { it.id !in groupedIds }
+        // Collapsing a group hides its **subtree**, not only its own entries: a child group's
+        // header inside a collapsed parent would be a header with no visible way back to it.
+        val hiddenByCollapse =
+            remember(groups, collapsedGroups) {
+                val hidden = mutableSetOf<String>()
+                for (group in groups) {
+                    var parent = vault.parentOf(group.id)
+                    var guard = 0
+                    while (parent != null && guard < GroupLayout.MAX_GROUP_DEPTH) {
+                        if (parent in collapsedGroups) {
+                            hidden += group.id
+                            break
+                        }
+                        parent = vault.parentOf(parent)
+                        guard += 1
+                    }
+                }
+                hidden
+            }
         val displayGroups =
             groups
+                .filter { it.id !in hiddenByCollapse }
                 .map { group ->
                     val ids = if (group.top) group.entryIds + orphans.map { it.id } else group.entryIds
                     group to ids.mapNotNull { entryById[it] }
@@ -388,8 +396,8 @@ fun TwoFactorScreen(
                             Group(
                                 id = "fallback",
                                 name = "",
-                                order = 0,
                                 top = true,
+                                children = emptyList(),
                                 entryIds = entries.map { it.id },
                             ) to entries,
                         )
@@ -419,7 +427,7 @@ fun TwoFactorScreen(
                         GroupHeader(
                             name = group.name,
                             count = groupEntries.size,
-                            depth = layout.depthOfGroup(group.id).coerceIn(1, 3),
+                            depth = (vault.depthOf(group.id) ?: 1).coerceIn(1, GroupLayout.MAX_GROUP_DEPTH),
                             expanded = group.id !in collapsedGroups,
                             onToggle = {
                                 collapsedGroups =
@@ -478,9 +486,7 @@ fun TwoFactorScreen(
         FloatingWindow(onDismiss = { managingGroups = false }) {
             GroupsScreen(
                 vault = vault,
-                layout = layout,
                 onClose = { managingGroups = false },
-                onLayoutChange = ::applyLayout,
                 onChanged = { refresh() },
             )
         }
@@ -700,7 +706,10 @@ private fun EntryCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                // A fixed gap rather than `SpaceBetween`: the weighted title column absorbs every
+                // spare pixel, so with `SpaceBetween` there is no space left between the badge and
+                // the name, and they touch. The column still pushes the copy button to the end.
+                horizontalArrangement = Arrangement.spacedBy(Space.m),
             ) {
                 if (selected != null) {
                     Icon(
@@ -713,6 +722,12 @@ private fun EntryCard(
                         tint = MaterialTheme.colorScheme.onBackground,
                     )
                 }
+
+                // The badge is the service's mark: the picture an import brought, or the entry's
+                // own initials over a colour derived from its secret. It sits before the title
+                // and not inside it, so a long name ellipsises against the badge rather than
+                // through it.
+                EntryIconBadge(entry)
 
                 // The title and the account stack, and the pair takes the width the copy
                 // button leaves. The account gets its own line instead of sitting beside the

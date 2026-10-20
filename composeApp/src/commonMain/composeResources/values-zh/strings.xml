@@ -87,8 +87,8 @@
     <string name="groups_top_hint">不属于任何分组的条目</string>
     <string name="groups_empty">这个分组里没有条目</string>
     <string name="groups_order_hint">分组内条目的顺序会同步：两台设备必须一致。</string>
-    <string name="groups_remove_hint">删掉的是分组，不是条目：它们会回到顶分组。</string>
-    <string name="groups_name_taken">这次修改没被接受。分组名称不能为空，也不能与已有的重名。</string>
+    <string name="groups_remove_hint">删掉的是分组，不是它下面的内容：条目与子分组会移到它的父分组。</string>
+    <string name="groups_name_taken">这次修改没被接受：名称过长，或者保险库已经变了。请重新打开这个界面再试。</string>
     <string name="action_new_group">新建分组</string>
     <string name="groups_subgroup">新建子分组</string>
     <string name="groups_move_under">移动到分组</string>
@@ -103,7 +103,10 @@
     <string name="action_move_to">移动到</string>
     <string name="dialog_new_group">新建分组</string>
     <string name="field_group_name">分组名称</string>
-    <string name="action_import_export">从其它应用导入</string>
+    <string name="action_import_vault">导入保险库…</string>
+    <string name="action_export_vault">导出保险库…</string>
+    <string name="dialog_import_vault">打开保险库文件</string>
+    <string name="filter_portable_files">保险库文件</string>
     <string name="action_close">关闭</string>
     <string name="action_apply">应用</string>
     <string name="import_open_title">打开导出文件</string>
@@ -127,14 +130,16 @@
     <string name="import_done">已加入 %1$d 条、替换 %2$d 条、跳过 %3$d 条</string>
 
     <!-- 导出保险库（在设置里） -->
-    <string name="action_export">导出保险库…</string>
     <string name="export_title">导出保险库</string>
-    <string name="export_plaintext_warning">只有加密 JSON 有加密保护：其余三种里的每个种子都是明文，请像保管保险库本身一样保管这样的文件。</string>
+    <string name="export_plaintext_warning">两个保险库文件能完整恢复账号，其中明文那一个之所以做得到，是因为主密钥就在文件里、没有加密。另外四种是给别的应用读的：只有加密 JSON 有保护，其余三种里的每个种子都是明文，请像保管保险库本身一样保管这些文件。</string>
     <string name="export_needs_password">需要口令</string>
-    <string name="export_carries_groups">带分组</string>
+    <string name="export_keeps_tree">保留分组与层级</string>
+    <string name="export_keeps_flat_groups">保留组名，不保留层级</string>
     <string name="export_drops_groups">不带分组：条目会回到顶分组</string>
+    <string name="export_vault_explainer">本应用自己的备份：主密钥和加密后的保险库在同一个文件里。它能在新设备上恢复条目、分组树和图标，而拿到这个文件的人就拿到了这个账号。</string>
+    <string name="export_encrypted_vault_explainer">同样的备份，主密钥由下面的口令锁住。除非有理由不这样做，请用这一个。</string>
     <string name="export_text_explainer">每行一个 otpauth:// 链接，不带名称、备注与分组。</string>
-    <string name="export_json_explainer">整份保险库的 JSON，含分组与组内顺序。</string>
+    <string name="export_json_explainer">整份保险库的 JSON，带平铺的组名与图标。</string>
     <string name="export_encrypted_json_explainer">同样的 JSON，用下面的口令加密。四种里只有这一种真正有保护。</string>
     <string name="export_html_explainer">一张表格，每个条目都画一张二维码；每张码里就是那条目的链接与种子。</string>
     <string name="export_password_title">这份导出用口令保护</string>
@@ -146,6 +151,8 @@
     <string name="export_failed">导出没能生成。</string>
     <string name="export_save_failed">导出文件没能保存。</string>
 
+    <string name="format_vault">保险库</string>
+    <string name="format_encrypted_vault">加密保险库</string>
     <string name="format_json">JSON</string>
     <string name="format_html">HTML</string>
     <string name="format_text">纯文本</string>
@@ -212,7 +219,8 @@
     <string name="sync_result_needs_decision">其中 %1$d 条两边不一致，请在下面裁决。</string>
     <string name="sync_conflict_ordering">两台设备对 %1$s 的排列不一致</string>
     <string name="sync_conflict_ordering_top">顶分组</string>
-    <string name="sync_conflict_ordering_hint">分组内的顺序两台设备都会显示，因此必须在两个排列里选一个。</string>
+    <string name="sync_conflict_group">分组 %1$s</string>
+    <string name="sync_conflict_ordering_hint">分组的内容排布两台设备都会显示，因此必须在两个排布里选一个。移动一个分组可能同时改动两个分组，所以同一件事可能出现两条冲突。</string>
     <string name="sync_conflict_ordering_renamed">改名了：本机叫 %1$s，对方叫 %2$s</string>
     <string name="sync_conflict_ordering_local">本机</string>
     <string name="sync_conflict_ordering_incoming">对方</string>
@@ -329,24 +337,19 @@
     <string name="settings_software_backed">非硬件保护</string>
     <string name="settings_core_version">核心库</string>
     <string name="settings_lock_now">立即锁定</string>
-    <string name="settings_recovery">恢复文件</string>
-    <string name="settings_recovery_explainer">恢复文件用你设定的口令保护主密钥，并同时带上加密后的保险库。即使所有设备都丢失，新设备也能用它找回条目。请离线保管：拿到文件和口令的人就拿到了这个账号。</string>
-    <string name="action_export_recovery">导出恢复文件…</string>
-    <string name="action_import_recovery">导入恢复文件…</string>
-    <string name="action_recover_from_file">从恢复文件找回账号…</string>
+    <string name="settings_import_export">导入与导出</string>
+    <string name="settings_import_export_explainer">导入只需打开一个文件：保险库备份会把整个账号恢复到本机，别的应用的导出则先预览、再写入。导出先给出两个保险库备份，然后是别的应用能读的格式。请离线保管备份：拿到明文那一个的人就拿到了这个账号。</string>
     <string name="action_restore">找回</string>
     <string name="field_passphrase">口令</string>
     <string name="field_passphrase_again">再输一次口令</string>
     <string name="error_passphrase_mismatch">两次输入的口令不一致。</string>
-    <string name="error_recovery_export">恢复文件没能生成。</string>
-    <string name="error_recovery_save">恢复文件没能保存。</string>
-    <string name="error_recovery_open">文件没能读取。</string>
-    <string name="error_recovery_rejected">没有被接受：口令不对，或者这不是一个恢复文件。</string>
-    <string name="error_recovery_key_only">这是较早的恢复密钥：只有主密钥，没有条目。本机的保险库也没有用它打开，因此什么都没改动。请用完整的恢复文件，或者保险库导出，来找回条目。</string>
+    <string name="error_recovery_rejected">没有被接受：文件损坏、口令不对，或者这不是一个保险库文件。</string>
+    <string name="error_recovery_key_only">这是较早的恢复密钥：只有主密钥，没有条目。本机的保险库也没有用它打开，因此什么都没改动。请用保险库备份来找回条目。</string>
+    <string name="error_recovery_bare_vault">这是一份原始保险库文件：里面是加密后的条目，但不含主密钥，导入它只会把本机的保险库换成一份打不开的数据。请在能打开它的设备上导出「保险库」或「加密保险库」，再导入那个文件。</string>
     <string name="error_recovery_vault_failed">主密钥已经解出，但文件里的保险库打不开。文件可能损坏，或者属于另一个账号；本机的密钥没有被改动。</string>
-    <string name="message_recovery_saved">已保存到 %1$s</string>
-    <string name="dialog_import_recovery_title">从恢复文件找回？</string>
-    <string name="dialog_import_recovery_text">恢复文件要用它的口令打开。完整的恢复文件会把本机的保险库替换成它携带的那个账号；较早的、只有密钥的文件只能重新打开本机已有的保险库。只存在于本机的条目不会被合并。</string>
+    <string name="dialog_import_recovery_title">用这个文件恢复？</string>
+    <string name="dialog_import_plain_vault_hint">这份文件里的主密钥是明文。拿到它的人就能打开这个账号，请离线保管，账号恢复之后删掉它。</string>
+    <string name="dialog_import_recovery_text">保险库备份会把本机的保险库替换成它携带的那个账号，只存在于本机的条目不会被合并。较早的、只有密钥的文件只能重新打开本机已有的保险库。</string>
     <string name="settings_about">关于</string>
     <string name="settings_license">应用本体为 Apache-2.0；它所依赖的 Rust 各层为 LGPL-3.0-or-later。</string>
 

@@ -1,153 +1,131 @@
 package dev.qualia.qualia2fa
 
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Exporting and restoring a recovery file, including the vault the entries live in.
+ * The `.q2fa` backups: plain, passphrase-protected, and the old key-only file.
  *
- * # What went wrong before these tests
- *
- * The core's recovery file wraps the **master key** and nothing else. The first version of the
- * settings screen wrote that file and, on import, built a brand-new empty vault from the
- * recovered key and saved it over the vault on disk: importing a file that had just been
- * exported therefore produced an empty account. These tests pin both halves of the repair:
- *
- * - a new recovery file carries the encrypted vault as well, and brings its entries back;
- * - an old key-only file can only reopen the vault already on the device, and is refused
- *   without touching anything when there is no such vault.
+ * The container carries the master key **and** the vault, because either alone restores nothing.
+ * These tests pin each shape, which shapes need a passphrase, and - the part that is easy to get
+ * wrong - that a failed restore leaves the device on the key it had.
  */
 class RecoveryTest {
     /** The passphrase the files below are exported with. */
     private val passphrase = "correct horse battery staple"
 
-    /** A vault with one entry, and the store holding its master key. */
-    private fun vaultWithEntry(): Pair<Vault, MemoryStore> {
-        val store = MemoryStore()
-        val vault = assertNotNull(Qualia.createLocalVault(store), "the local vault must open")
-        assertNotNull(
-            vault.addEntry(
-                name = "Aurora",
-                issuer = "ACME",
-                account = "alice",
-                secretBase32 = "JBSWY3DPEHPK3PXP",
-                algorithm = OtpAlgorithm.Sha1,
-                digits = 6,
-                kind = EntryKind.Totp(30),
-                note = "",
-                unixTime = 1_700_000_000L,
-            ),
-            "the entry must be accepted",
-        )
-        return vault to store
-    }
+    private fun vault(): Vault = assertNotNull(Qualia.createLocalVault(MemoryStore()))
 
-    /** A fresh store with no key, which is what a device that has lost its key has. */
-    private fun emptyStore(): MemoryStore = MemoryStore()
+    private fun add(vault: Vault, name: String, secret: String): String =
+        assertNotNull(
+            vault.addEntry(name, "Example", "alice", secret, OtpAlgorithm.Sha1, 6, EntryKind.Totp(30), "", 1_700_000_000L),
+        )
 
     @Test
-    fun aNewRecoveryFileBringsItsEntriesBack() {
-        val (vault, _) = vaultWithEntry()
-        val file = assertNotNull(buildRecoveryBackup(vault, passphrase), "the backup must be written")
-        val store = emptyStore()
+    fun aPlainVaultBackupRestoresOnACleanDevice() {
+        val vault = vault()
+        add(vault, "GitHub", "JBSWY3DPEHPK3PXP")
+        val file = assertNotNull(vault.export(ExportFormat.Vault), "the plain backup must be written")
+        assertEquals(PortableKind.PlainVault, Qualia.detectPortableKind(file))
 
-        val outcome = restoreRecoveryFile(file, passphrase, store, currentVaultData = null)
+        val store = MemoryStore()
+        val restored = restorePortableFile(file, "", store, currentVaultData = null)
+        val recovered = assertIs<PortableRestore.Recovered>(restored, "a plain backup must restore, got $restored")
+        assertEquals(1, recovered.vault.entryCount, "the entries come with it")
+    }
 
-        val restored = assertIs<RecoveryRestore.Recovered>(outcome, "a full backup must restore, got $outcome")
-        assertEquals(listOf("Aurora"), restored.vault.entries().map { it.name })
-        assertTrue(store.exists, "the recovered master key must be written to the store")
+    @Test
+    fun anEncryptedVaultBackupNeedsItsPassphrase() {
+        val vault = vault()
+        add(vault, "GitHub", "JBSWY3DPEHPK3PXP")
+        val file =
+            assertNotNull(
+                vault.export(ExportFormat.EncryptedVault, passphrase),
+                "the encrypted backup must be written",
+            )
+        assertEquals(PortableKind.EncryptedVault, Qualia.detectPortableKind(file))
+
+        val rejected = restorePortableFile(file, "wrong", MemoryStore(), currentVaultData = null)
+        assertIs<PortableRestore.Rejected>(rejected, "a wrong passphrase must not open it, got $rejected")
+
+        val restored = restorePortableFile(file, passphrase, MemoryStore(), currentVaultData = null)
+        val recovered = assertIs<PortableRestore.Recovered>(restored, "the right passphrase opens it, got $restored")
+        assertEquals(1, recovered.vault.entryCount)
     }
 
     @Test
     fun anOldKeyOnlyFileReopensTheVaultAlreadyOnTheDevice() {
-        val (vault, _) = vaultWithEntry()
-        val recovery = assertNotNull(vault.recoveryFile(passphrase), "the core recovery file must be written")
+        val store = MemoryStore()
+        val vault = assertNotNull(Qualia.createLocalVault(store))
+        add(vault, "GitHub", "JBSWY3DPEHPK3PXP")
+        val current = assertNotNull(vault.serialize(), "the local vault must be written")
+
+        val recovery = assertNotNull(vault.recoveryFile(passphrase), "the old key-only file must be written")
         assertEquals(110, recovery.size, "the legacy recovery file is the core's fixed-size one")
-        val current = assertNotNull(vault.serialize(), "the current vault must serialize")
-        val store = emptyStore()
+        assertEquals(PortableKind.KeyOnly, Qualia.detectPortableKind(recovery))
 
-        val outcome = restoreRecoveryFile(recovery, passphrase, store, currentVaultData = current)
-
-        val restored = assertIs<RecoveryRestore.Recovered>(outcome, "the matching vault must open, got $outcome")
-        assertEquals(listOf("Aurora"), restored.vault.entries().map { it.name })
+        val restored = restorePortableFile(recovery, passphrase, store, currentVaultData = current)
+        val recovered = assertIs<PortableRestore.Recovered>(restored, "the matching vault must open, got $restored")
+        assertEquals(1, recovered.vault.entryCount)
     }
 
     @Test
     fun anOldKeyOnlyFileWithoutAVaultChangesNothing() {
-        val (vault, _) = vaultWithEntry()
+        val vault = vault()
         val recovery = assertNotNull(vault.recoveryFile(passphrase), "the core recovery file must be written")
-        val store = emptyStore()
-
-        val outcome = restoreRecoveryFile(recovery, passphrase, store, currentVaultData = null)
-
-        assertEquals(RecoveryRestore.KeyOnly, outcome)
-        assertFalse(store.exists, "a key-only file with nothing to open must not write a key")
+        val store = MemoryStore()
+        val outcome = restorePortableFile(recovery, passphrase, store, currentVaultData = null)
+        assertEquals(PortableRestore.KeyOnly, outcome)
+        assertEquals(null, store.load(), "nothing may be written when there is nothing it could open")
     }
 
     @Test
-    fun aWrongPassphraseChangesNothing() {
-        val (vault, _) = vaultWithEntry()
-        val file = assertNotNull(buildRecoveryBackup(vault, passphrase), "the backup must be written")
-        val store = emptyStore()
-
-        val outcome = restoreRecoveryFile(file, "not the passphrase", store, currentVaultData = null)
-
-        assertEquals(RecoveryRestore.Rejected, outcome)
-        assertFalse(store.exists, "a rejected backup must not leave a key behind")
-    }
-
-    /**
-     * A full file whose vault does not open is refused **and the previous key is put back**.
-     *
-     * This is the state a damaged download or a file belonging to another account produces.
-     * Importing must not leave the device on a key that opens nothing.
-     */
-    @Test
-    fun aDamagedFullBackupRollsTheKeyBack() {
-        val (other, _) = vaultWithEntry()
-        val file = assertNotNull(buildRecoveryBackup(other, passphrase), "the other backup must be written")
-        val parsed = assertIs<RecoveryBackup.Full>(RecoveryBackupFormat.parse(file), "the fixture must be a full backup")
-        // A payload that is not a vault at all is a deterministic "does not open" case; a
-        // one-byte flip in a real vault could land in a part the format does not authenticate.
-        val damaged =
-            assertNotNull(
-                RecoveryBackupFormat.pack(parsed.recovery, byteArrayOf(1, 2, 3)),
-                "the damaged file must pack",
-            )
-
-        val (_, existingStore) = vaultWithEntry()
-        val previousKey = assertNotNull(existingStore.load(), "the existing store must hold a key").copyOf()
-
-        val outcome = restoreRecoveryFile(damaged, passphrase, existingStore, currentVaultData = null)
-
-        assertEquals(RecoveryRestore.VaultFailed, outcome)
-        assertContentEquals(previousKey, existingStore.load(), "the previous key must be restored")
+    fun aBareVaultFileIsRefusedWithItsOwnAnswer() {
+        val vault = vault()
+        add(vault, "GitHub", "JBSWY3DPEHPK3PXP")
+        val bare = assertNotNull(vault.serialize())
+        assertEquals(null, Qualia.detectPortableKind(bare), "a bare vault file is not a portable container")
+        assertEquals(
+            PortableRestore.BareVault,
+            restorePortableFile(bare, "", MemoryStore(), currentVaultData = null),
+        )
     }
 
     @Test
-    fun theContainerRoundTripsAndRejectsExtraneousBytes() {
-        val recovery = ByteArray(110) { it.toByte() }
-        val vault = ByteArray(64) { (it + 1).toByte() }
-        val packed = assertNotNull(RecoveryBackupFormat.pack(recovery, vault), "the container must pack")
-        val parsed = assertIs<RecoveryBackup.Full>(RecoveryBackupFormat.parse(packed), "the container must parse")
-        assertContentEquals(recovery, parsed.recovery)
-        assertContentEquals(vault, parsed.vault)
+    fun aDamagedBackupLeavesTheKeyTheDeviceHad() {
+        val other = vault()
+        add(other, "Other", "GEZDGNBVGY3TQOJQ")
+        val otherFile =
+            assertNotNull(other.export(ExportFormat.EncryptedVault, passphrase), "the backup must be written")
+        assertEquals(PortableKind.EncryptedVault, Qualia.detectPortableKind(otherFile))
 
-        val trailing = packed + byteArrayOf(0)
-        assertEquals(RecoveryBackup.Invalid, RecoveryBackupFormat.parse(trailing))
-        assertEquals(RecoveryBackup.Invalid, RecoveryBackupFormat.parse(byteArrayOf(1, 2, 3)))
-        assertEquals(RecoveryBackup.Invalid, RecoveryBackupFormat.parse(ByteArray(110)))
-    }
+        // Swap the first two bytes of the vault the container carries. The wrapped key still
+        // opens, so the restore gets far enough to discover that the pair does not belong
+        // together - the case the rollback exists for.
+        val headerLength = 8 + 1 + 4 + 4
+        val recoveryLength =
+            ((otherFile[9].toInt() and 0xFF) shl 24) or
+                ((otherFile[10].toInt() and 0xFF) shl 16) or
+                ((otherFile[11].toInt() and 0xFF) shl 8) or
+                (otherFile[12].toInt() and 0xFF)
+        val damaged = otherFile.copyOf()
+        damaged[headerLength + recoveryLength] = 1
+        damaged[headerLength + recoveryLength + 1] = 2
 
-    @Test
-    fun aLegacyFileIsRecognizedByItsMagicAndLength() {
-        val legacy = ByteArray(110)
-        "Q2FAREC\u0000".encodeToByteArray().copyInto(legacy, 0)
-        assertIs<RecoveryBackup.KeyOnly>(RecoveryBackupFormat.parse(legacy), "the old file shape must be recognized")
+        val existingStore = MemoryStore()
+        val existing = assertNotNull(Qualia.createLocalVault(existingStore))
+        add(existing, "Mine", "JBSWY3DPEHPK3PXP")
+        val before = assertNotNull(existingStore.load())
+        val beforeCopy = before.copyOf()
+
+        val outcome = restorePortableFile(damaged, passphrase, existingStore, currentVaultData = null)
+        assertEquals(PortableRestore.VaultFailed, outcome)
+        assertTrue(
+            beforeCopy.contentEquals(assertNotNull(existingStore.load())),
+            "the device's key must be the one it had before the attempt",
+        )
     }
 }

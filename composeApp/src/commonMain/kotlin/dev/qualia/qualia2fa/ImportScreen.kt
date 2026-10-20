@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_apply
 import dev.qualia.qualia2fa.resources.action_close
-import dev.qualia.qualia2fa.resources.action_import_export
+import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.decision_add
 import dev.qualia.qualia2fa.resources.decision_keep_both
 import dev.qualia.qualia2fa.resources.decision_replace
@@ -114,6 +114,15 @@ fun ImportScreen(
     vault: Vault,
     onClose: () -> Unit,
     onApplied: () -> Unit,
+    /**
+     * Called when the chosen file is a `.q2fa` backup.
+     *
+     * A backup is not an import of entries: it replaces the whole account, so the caller runs the
+     * restore path (confirmation, and a passphrase for the encrypted form) instead of a preview.
+     * The bytes are handed over as they are; the detection happens here because it is the same
+     * file picker that would otherwise say "format not recognised".
+     */
+    onPortableFile: (ByteArray) -> Unit,
 ) {
     val picker = rememberFilePicker()
     var stage by remember { mutableStateOf<ImportStage>(ImportStage.Choosing) }
@@ -179,13 +188,20 @@ fun ImportScreen(
         picker.pickBytes(openTitle, filterLabel, extension = null) { file ->
             if (file == null) {
                 message = unreadable
+                return@pickBytes
+            }
+            // A `.q2fa` is a whole account, not a list of entries: it goes to the restore path,
+            // which asks before replacing anything. Checking this first is what makes "import"
+            // one entry in the interface rather than two files to know apart.
+            if (Qualia.detectPortableKind(file) != null) {
+                onPortableFile(file)
+                return@pickBytes
+            }
+            val detected = Qualia.detectImportFormat(file)
+            if (detected == null) {
+                message = notRecognised
             } else {
-                val detected = Qualia.detectImportFormat(file)
-                if (detected == null) {
-                    message = notRecognised
-                } else {
-                    read(file, detected, null)
-                }
+                read(file, detected, null)
             }
         }
     }
@@ -194,7 +210,7 @@ fun ImportScreen(
         modifier = Modifier.fillMaxSize().padding(start = Space.xl, top = Space.l, end = Space.xl),
         verticalArrangement = Arrangement.spacedBy(Space.l),
     ) {
-        ScreenHeader(title = stringResource(Res.string.action_import_export)) {
+        ScreenHeader(title = stringResource(Res.string.action_import_vault)) {
             TextButton(onClick = onClose) { Text(stringResource(Res.string.action_close)) }
         }
 
