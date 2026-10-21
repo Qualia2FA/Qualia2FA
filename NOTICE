@@ -1,17 +1,20 @@
 Qualia2FA
-Copyright 2026 Qualia2FA contributors
+Copyright (C) 2026 Qualia2FA contributors
+Source: https://github.com/Qualia2FA/Qualia2FA
 
 This product is an application for two-factor authentication. It is licensed
 under the Apache License, Version 2.0 (see LICENSE).
 
-This product depends on the following separately-licensed components. They are
-not part of this product's source and are distributed under their own terms:
+This product depends on the following separately-licensed components:
 
-  Qualia2FA-Core   LGPL-3.0-or-later   https://github.com/QiuShui1012/Qualia2FA-Core
-  Qualia2FA-FFI    LGPL-3.0-or-later   https://github.com/QiuShui1012/Qualia2FA-FFI
+  Qualia2FA-Core           LGPL-3.0-or-later   https://github.com/Qualia2FA/Qualia2FA-Core
+  Qualia2FA-FFI            LGPL-3.0-or-later   https://github.com/Qualia2FA/Qualia2FA-FFI
+  QualiaDeviceIdentityKit  LGPL-3.0-or-later   https://github.com/Qualia2FA/QualiaDeviceIdentityKit
+  QualiaTransport          LGPL-3.0-or-later   https://github.com/Qualia2FA/QualiaTransport
 
-Qualia2FA-Core and Qualia2FA-FFI are dynamically linked and remain under the
-GNU Lesser General Public License v3.0 or later. Their complete source is
+Qualia2FA-FFI is loaded as a shared library at run time and statically includes
+qualia2fa-core, qualia-dik and qualia-transport. All four remain under the GNU
+Lesser General Public License v3.0 or later, and their complete source is
 available at the URLs above.
 
 Cascadia Code
