@@ -10,6 +10,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Modifier
 import java.nio.file.Path
 
@@ -70,6 +78,26 @@ class MainActivity : ComponentActivity() {
 
         val dataDirectory: Path = filesDir.toPath()
         setContent {
+            // The vault's timeout counts time in front of the application. A file picker is a
+            // window of the system, so the activity is paused while one is open; handing that
+            // fact to the shared code is what keeps the timeout from firing there.
+            val lifecycle = LocalLifecycleOwner.current.lifecycle
+            var active by remember(lifecycle) {
+                mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            }
+            DisposableEffect(lifecycle) {
+                val observer =
+                    LifecycleEventObserver { _, event ->
+                        when (event) {
+                            Lifecycle.Event.ON_RESUME -> active = true
+                            Lifecycle.Event.ON_PAUSE -> active = false
+                            else -> Unit
+                        }
+                    }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
+
             Box(
                 modifier =
                     Modifier
@@ -82,6 +110,7 @@ class MainActivity : ComponentActivity() {
                     // beside the vault file is the wrapped form.
                     storage = FileVaultStorage.open(dataDirectory),
                     settings = FileSettingsStore(dataDirectory.resolve("settings.properties")),
+                    active = active,
                 )
             }
         }

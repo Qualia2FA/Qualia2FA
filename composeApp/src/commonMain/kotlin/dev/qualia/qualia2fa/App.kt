@@ -84,7 +84,20 @@ private sealed interface Phase {
  * they were resolved in the language that is no longer in effect.
  */
 @Composable
-fun App(storage: VaultStorage?, settings: SettingsStore) {
+fun App(
+    storage: VaultStorage?,
+    settings: SettingsStore,
+    /**
+     * Whether the application is in the foreground.
+     *
+     * The timeout counts time **in the application**, not time in a system dialog: opening a
+     * file picker pauses the activity, and locking while it is open would end the composition
+     * that is waiting for the picked file - the picker would still create the document, but the
+     * bytes would never be written and the user would be left with an empty file. The timer
+     * therefore stops while this is false and restarts from the beginning when it is true again.
+     */
+    active: Boolean = true,
+) {
     var language by remember { mutableStateOf(settings.language()) }
     var theme by remember { mutableStateOf(settings.theme()) }
     var phase by remember { mutableStateOf<Phase>(Phase.Loading) }
@@ -311,8 +324,11 @@ fun App(storage: VaultStorage?, settings: SettingsStore) {
 
     LaunchedEffect(Unit) { openExisting() }
 
-    LaunchedEffect(phase) {
-        if (phase !is Phase.Main) return@LaunchedEffect
+    LaunchedEffect(phase, active) {
+        // A locked device is not a vault to time out, and a picker in front of the application
+        // is not the user leaving it: in both cases the countdown either does not start or
+        // starts again when the application is back in front.
+        if (phase !is Phase.Main || !active) return@LaunchedEffect
         delay(SESSION_TIMEOUT_SECONDS.seconds)
         lock(Status.LockedAfterTimeout(SESSION_TIMEOUT_SECONDS))
     }

@@ -37,6 +37,7 @@ import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
 import dev.qualia.qualia2fa.resources.action_restore
 import dev.qualia.qualia2fa.resources.action_unlock
+import dev.qualia.qualia2fa.resources.dialog_import_plain_vault_hint
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
 import dev.qualia.qualia2fa.resources.dialog_import_vault
@@ -128,20 +129,18 @@ fun LoginScreen(
     val recoveryFilter = stringResource(Res.string.filter_portable_files)
 
     /**
-     * Opens a portable file, and asks for its passphrase only when it has one.
+     * Opens a portable file, asks before replacing the account, and asks for a passphrase only
+     * when the file has one.
      *
-     * A plain `.q2fa` carries the master key as it is, so there is nothing to ask: sending the
-     * user through a password dialog that must stay empty would look like a prompt for a secret
-     * that does not exist. The encrypted form, the old key-only file and anything unrecognized go
-     * through the dialog, and an unrecognized or empty password comes back as a refusal.
+     * A plain `.q2fa` carries the master key as it is, so there is no password to ask for - but
+     * there is still an account to replace, and this screen has no vault open to fall back on.
+     * Every shape therefore goes through the confirmation first; only the encrypted form and the
+     * old key-only file go on to the passphrase dialog.
      */
     fun chooseRecoveryFile() {
         picker.pickBytes(openRecoveryTitle, recoveryFilter, PORTABLE_FILE_EXTENSION) { file ->
             if (file == null) return@pickBytes
-            when (Qualia.detectPortableKind(file)) {
-                PortableKind.PlainVault -> onRecover(file, "")
-                else -> chosenRecovery = file
-            }
+            chosenRecovery = file
         }
     }
 
@@ -237,16 +236,34 @@ fun LoginScreen(
     }
 
     chosenRecovery?.let { file ->
+        val plain = Qualia.detectPortableKind(file) == PortableKind.PlainVault
         AlertDialog(
             onDismissRequest = { chosenRecovery = null },
             properties = DialogDefaults,
             title = { Text(stringResource(Res.string.dialog_import_recovery_title)) },
-            text = { Text(stringResource(Res.string.dialog_import_recovery_text)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                    Text(stringResource(Res.string.dialog_import_recovery_text))
+                    // This screen has no vault yet, so this is the only account the device has:
+                    // the plain file is the one that replaces it outright, and the warning has to
+                    // be part of the question rather than of the next screen.
+                    if (plain) {
+                        Text(
+                            stringResource(Res.string.dialog_import_plain_vault_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = {
                         chosenRecovery = null
-                        recoveryFile = file
+                        if (plain) {
+                            onRecover(file, "")
+                        } else {
+                            recoveryFile = file
+                        }
                     },
                 ) { Text(stringResource(Res.string.action_continue)) }
             },

@@ -378,14 +378,22 @@ fun TwoFactorScreen(
                 }
                 hidden
             }
+        // How many entries each group holds **with its subtree**. A group that holds only child
+        // groups has no cards of its own, but it still has to appear: dropping it would leave its
+        // children's headers indented under nothing, which is not a tree a user can read.
+        val subtreeEntries = remember(groups) { subtreeEntryCounts(groups) }
+        val visible =
+            remember(groups, orphans) {
+                visibleGroupIds(groups, subtreeEntries, hasOrphans = orphans.isNotEmpty())
+            }
+        val visibleGroups = groups.filter { it.id in visible }
         val displayGroups =
-            groups
+            visibleGroups
                 .filter { it.id !in hiddenByCollapse }
                 .map { group ->
                     val ids = if (group.top) group.entryIds + orphans.map { it.id } else group.entryIds
                     group to ids.mapNotNull { entryById[it] }
                 }
-                .filter { it.second.isNotEmpty() }
                 .ifEmpty {
                     if (entries.isEmpty()) {
                         emptyList()
@@ -426,7 +434,7 @@ fun TwoFactorScreen(
                     item(key = "group:${group.id}", span = { GridItemSpan(maxLineSpan) }) {
                         GroupHeader(
                             name = group.name,
-                            count = groupEntries.size,
+                            count = subtreeEntries[group.id] ?: groupEntries.size,
                             depth = (vault.depthOf(group.id) ?: 1).coerceIn(1, GroupLayout.MAX_GROUP_DEPTH),
                             expanded = group.id !in collapsedGroups,
                             onToggle = {
@@ -834,6 +842,45 @@ private fun EntryCard(
         }
     }
 }
+
+/**
+ * How many entries each group holds with its subtree, by group id.
+ *
+ * The list is in pre-order, so visiting it backwards guarantees that a child has been counted
+ * before its parent asks for it. A group that holds only child groups counts what its children
+ * count; that number is what decides whether the group gets a header at all, and what the header
+ * says next to its name.
+ */
+internal fun subtreeEntryCounts(groups: List<Group>): Map<String, Int> {
+    val counts = mutableMapOf<String, Int>()
+    for (group in groups.asReversed()) {
+        var count = group.entryIds.size
+        for (child in group.children) {
+            if (child is GroupChild.Group) {
+                count += counts[child.id] ?: 0
+            }
+        }
+        counts[group.id] = count
+    }
+    return counts
+}
+
+/**
+ * The ids of the groups that get a header, given the subtree counts and whether there are
+ * entries no group claims.
+ *
+ * A group with nothing under it is not shown at all; the top group is the exception when
+ * unclaimed entries exist, because it is where those are drawn.
+ */
+internal fun visibleGroupIds(
+    groups: List<Group>,
+    subtreeCounts: Map<String, Int>,
+    hasOrphans: Boolean,
+): Set<String> =
+    groups
+        .filter { (subtreeCounts[it.id] ?: 0) > 0 || (it.top && hasOrphans) }
+        .map { it.id }
+        .toSet()
 
 /**
  * The header of one group: a full-width bar that expands or collapses its cards.
