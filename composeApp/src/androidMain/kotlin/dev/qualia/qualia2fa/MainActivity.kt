@@ -1,7 +1,7 @@
 package dev.qualia.qualia2fa
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -70,9 +70,12 @@ import java.nio.file.Path
  * this line the device identity reports that it was loaded without a Java VM, which is true,
  * and the vault can neither pair nor sync.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Built once per activity: the prompt is its window, and the sealer holds it.
+        val sealer = AndroidAuthSealer(this)
 
         System.loadLibrary("qualia2fa_ffi")
 
@@ -111,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     storage = FileVaultStorage.open(dataDirectory),
                     settings = FileSettingsStore(dataDirectory.resolve("settings.properties")),
                     active = active,
+                    authSealer = sealer,
                 )
             }
         }

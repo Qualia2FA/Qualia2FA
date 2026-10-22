@@ -28,26 +28,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.action_cancel
+import dev.qualia.qualia2fa.resources.action_change_password
 import dev.qualia.qualia2fa.resources.action_continue
+import dev.qualia.qualia2fa.resources.action_disable_biometric
+import dev.qualia.qualia2fa.resources.action_enable_biometric
 import dev.qualia.qualia2fa.resources.action_export_vault
-import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.action_import_vault
 import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
 import dev.qualia.qualia2fa.resources.app_name
+import dev.qualia.qualia2fa.resources.dialog_change_password_title
 import dev.qualia.qualia2fa.resources.dialog_import_plain_vault_hint
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
 import dev.qualia.qualia2fa.resources.dialog_reset_text
 import dev.qualia.qualia2fa.resources.dialog_reset_title
+import dev.qualia.qualia2fa.resources.error_passphrase_mismatch
 import dev.qualia.qualia2fa.resources.error_recovery_bare_vault
 import dev.qualia.qualia2fa.resources.error_recovery_key_only
 import dev.qualia.qualia2fa.resources.error_recovery_rejected
 import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
+import dev.qualia.qualia2fa.resources.field_current_password
+import dev.qualia.qualia2fa.resources.field_new_password
 import dev.qualia.qualia2fa.resources.filter_portable_files
+import dev.qualia.qualia2fa.resources.hint_unlock_password_minimum
 import dev.qualia.qualia2fa.resources.nav_settings
 import dev.qualia.qualia2fa.resources.qualia2fa_logo
 import dev.qualia.qualia2fa.resources.settings_about
+import dev.qualia.qualia2fa.resources.settings_biometric
+import dev.qualia.qualia2fa.resources.settings_biometric_explainer
 import dev.qualia.qualia2fa.resources.settings_core_version
 import dev.qualia.qualia2fa.resources.settings_device_identity
 import dev.qualia.qualia2fa.resources.settings_hardware_backed
@@ -60,9 +69,12 @@ import dev.qualia.qualia2fa.resources.settings_master_key_software
 import dev.qualia.qualia2fa.resources.settings_no_device_identity
 import dev.qualia.qualia2fa.resources.settings_import_export
 import dev.qualia.qualia2fa.resources.settings_import_export_explainer
+import dev.qualia.qualia2fa.resources.settings_import_requires_lock
 import dev.qualia.qualia2fa.resources.settings_reset
 import dev.qualia.qualia2fa.resources.settings_reset_explainer
 import dev.qualia.qualia2fa.resources.settings_software_backed
+import dev.qualia.qualia2fa.resources.settings_unlock_password
+import dev.qualia.qualia2fa.resources.settings_unlock_password_explainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -120,16 +132,30 @@ fun SettingsScreen(
      * store — which is also a machine that cannot have reached this screen with a vault open.
      */
     masterKeyStore: MasterKeyStore?,
+    /**
+     * Whether the application lock is enabled.
+     *
+     * On a locked device the master key lives in `master.key.pw`, so the change-password
+     * entry is the supported way to rotate it. A legacy device never reaches this screen: it
+     * is sent through the migration first.
+     */
+    lockEnabled: Boolean,
+    /** Whether the platform-authenticated wrap (`master.key.bio`) is present. */
+    biometricEnabled: Boolean,
     language: AppLanguage,
     onSelectLanguage: (AppLanguage) -> Unit,
     theme: AppTheme,
     onSelectTheme: (AppTheme) -> Unit,
     onLock: () -> Unit,
+    onEnableBiometric: (onResult: (String?) -> Unit) -> Unit,
+    onDisableBiometric: (onResult: (String?) -> Unit) -> Unit,
+    onChangePassword: (oldPassword: String, newPassword: String, onResult: (String?) -> Unit) -> Unit,
     onImported: (Vault) -> Unit,
     onReset: () -> Unit,
 ) {
     var message by remember { mutableStateOf<String?>(null) }
     var resetting by remember { mutableStateOf(false) }
+    var changingPassword by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var exportingVault by remember { mutableStateOf(false) }
     var restoreStep by remember { mutableStateOf<RestoreStep?>(null) }
@@ -228,10 +254,52 @@ fun SettingsScreen(
             )
         }
 
+        if (lockEnabled) {
+            SectionCard(title = stringResource(Res.string.settings_unlock_password)) {
+                Hint(stringResource(Res.string.settings_unlock_password_explainer))
+                OutlinedButton(
+                    onClick = { changingPassword = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(Res.string.action_change_password))
+                }
+            }
+
+            SectionCard(title = stringResource(Res.string.settings_biometric)) {
+                Hint(stringResource(Res.string.settings_biometric_explainer))
+                if (biometricEnabled) {
+                    OutlinedButton(
+                        onClick = {
+                            onDisableBiometric { result -> message = result }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(Res.string.action_disable_biometric))
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = {
+                            onEnableBiometric { result -> message = result }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(Res.string.action_enable_biometric))
+                    }
+                }
+            }
+        }
+
         SectionCard(title = stringResource(Res.string.settings_import_export)) {
             Hint(stringResource(Res.string.settings_import_export_explainer))
-            OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(importLabel)
+            if (lockEnabled) {
+                // Importing would replace the vault's master key while the existing wrap
+                // still names the old one. The login screen's import path sets a new
+                // password for the imported key, so the user is sent there after locking.
+                Hint(stringResource(Res.string.settings_import_requires_lock))
+            } else {
+                OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(importLabel)
+                }
             }
             OutlinedButton(onClick = { exportingVault = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(exportLabel)
@@ -301,6 +369,16 @@ fun SettingsScreen(
                 onClose = { exportingVault = false },
             )
         }
+    }
+
+    if (changingPassword) {
+        ChangePasswordDialog(
+            onDismiss = { changingPassword = false },
+            onConfirm = { oldPassword, newPassword ->
+                changingPassword = false
+                onChangePassword(oldPassword, newPassword) { result -> message = result }
+            },
+        )
     }
 
     if (resetting) {
@@ -383,6 +461,81 @@ fun SettingsScreen(
                 },
             )
     }
+}
+
+/**
+ * The three fields of a password change: the current one, the new one, and its repeat.
+ *
+ * The old password is checked by the native layer against the wrap and the open vault, not
+ * here; this dialog only prevents an empty submission and a mistyped repeat. The new password
+ * is typed twice for the same reason the first one is: a typo in a value that cannot be
+ * recovered is worse than one more field.
+ */
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (oldPassword: String, newPassword: String) -> Unit,
+) {
+    var current by remember { mutableStateOf("") }
+    var next by remember { mutableStateOf("") }
+    var repeated by remember { mutableStateOf("") }
+    var mismatch by remember { mutableStateOf(false) }
+    val mismatchText = stringResource(Res.string.error_passphrase_mismatch)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogDefaults,
+        title = { Text(stringResource(Res.string.dialog_change_password_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+                SecretField(
+                    value = current,
+                    onValueChange = { current = it },
+                    label = stringResource(Res.string.field_current_password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SecretField(
+                    value = next,
+                    onValueChange = {
+                        next = it
+                        mismatch = false
+                    },
+                    label = stringResource(Res.string.field_new_password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SecretField(
+                    value = repeated,
+                    onValueChange = {
+                        repeated = it
+                        mismatch = false
+                    },
+                    label = stringResource(Res.string.field_new_password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Hint(stringResource(Res.string.hint_unlock_password_minimum))
+                if (mismatch) MessageLine(mismatchText)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (next != repeated) {
+                        mismatch = true
+                    } else {
+                        onConfirm(current, next)
+                    }
+                },
+                enabled = current.isNotEmpty() && next.isNotEmpty(),
+            ) {
+                Text(stringResource(Res.string.action_change_password))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(Res.string.action_cancel))
+            }
+        },
+    )
 }
 
 

@@ -387,4 +387,36 @@
     <string name="scan_keep_going">已收到，继续扫剩下的。</string>
     <string name="scan_frame_taken">第 %1$d/%2$d 帧</string>
     <string name="sync_frames_count">%1$d/%2$d</string>
+    <!-- 应用锁 -->
+    <string name="login_password_explainer">保险库已锁定。请输入在这台设备上设置的解锁密码。它不是恢复文件的口令。</string>
+    <string name="field_unlock_password">解锁密码</string>
+    <string name="error_unlock_password_rejected">密码不正确，保险库没有打开。</string>
+    <string name="error_lock_unreadable">这台设备有锁，但没有可用的解锁材料。请从备份导入保险库，或重置本机。</string>
+    <string name="error_lock_pending">发现未完成的锁操作。请用解锁密码打开设备以完成它，或重置本机。</string>
+    <string name="dialog_set_password_title">设置解锁密码</string>
+    <string name="action_set_password">设置密码</string>
+    <string name="hint_unlock_password_minimum">建议至少 8 个字符。这个密码无法找回；恢复文件是唯一的退路。</string>
+    <string name="error_password_wrap_failed">解锁密码没有设置成功，本机没有改动。</string>
+    <string name="error_vault_does_not_match_password">密码打开了锁，但保险库文件不属于这个账号。</string>
+    <string name="set_password_explainer">这台设备还没有解锁密码。现在设置一个：每次保险库锁定时都需要它，没有恢复文件时它也是唯一的退路。</string>
+    <string name="error_set_password_required">这台设备必须先设置解锁密码才能使用保险库。请设置密码、从备份导入保险库，或重置本机。</string>
+    <string name="settings_unlock_password">解锁密码</string>
+    <string name="settings_unlock_password_explainer">修改后会在这台设备上重新包裹主密钥。旧密码立即失效；恢复文件和其他设备不受影响。</string>
+    <string name="action_change_password">修改密码</string>
+    <string name="dialog_change_password_title">修改解锁密码</string>
+    <string name="field_current_password">当前密码</string>
+    <string name="field_new_password">新密码</string>
+    <string name="message_password_changed">解锁密码已修改。</string>
+    <string name="error_old_password_rejected">当前密码不正确。</string>
+    <string name="settings_import_requires_lock">锁启用时直接导入保险库会让旧解锁密码绑到新密钥上。请先锁定本机，再在登录界面使用「导入保险库」。</string>
+    <string name="action_unlock_biometric">使用 Windows Hello / 指纹解锁</string>
+    <string name="settings_biometric">生物识别解锁</string>
+    <string name="settings_biometric_explainer">主密钥的第二个包裹，由 Windows Hello 或 Android 生物识别提示解锁。平台凭据被移除时，密码仍是回来的路。</string>
+    <string name="settings_biometric_unavailable">这台机器无法提供平台认证路径。</string>
+    <string name="action_enable_biometric">启用生物识别解锁</string>
+    <string name="action_disable_biometric">关闭生物识别解锁</string>
+    <string name="message_biometric_enabled">生物识别解锁已启用。</string>
+    <string name="message_biometric_disabled">生物识别解锁已关闭，平台凭据已删除。</string>
+    <string name="error_biometric_failed">平台认证没有完成，没有做任何改动。</string>
+    <string name="error_biometric_blob_unreadable">这台设备上的生物识别解锁数据读不出来，请用密码。</string>
 </resources>

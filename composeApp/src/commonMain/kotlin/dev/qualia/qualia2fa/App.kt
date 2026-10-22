@@ -16,14 +16,27 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import dev.qualia.qualia2fa.resources.Res
 import dev.qualia.qualia2fa.resources.dialog_pick_image
+import dev.qualia.qualia2fa.resources.error_biometric_blob_unreadable
+import dev.qualia.qualia2fa.resources.error_biometric_failed
 import dev.qualia.qualia2fa.resources.error_no_platform_key_store
+import dev.qualia.qualia2fa.resources.error_lock_pending
+import dev.qualia.qualia2fa.resources.error_lock_unreadable
+import dev.qualia.qualia2fa.resources.error_old_password_rejected
+import dev.qualia.qualia2fa.resources.error_password_wrap_failed
 import dev.qualia.qualia2fa.resources.error_recovery_bare_vault
 import dev.qualia.qualia2fa.resources.error_recovery_key_only
 import dev.qualia.qualia2fa.resources.error_recovery_rejected
 import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
 import dev.qualia.qualia2fa.resources.error_serialize_failed
+import dev.qualia.qualia2fa.resources.error_set_password_required
+import dev.qualia.qualia2fa.resources.error_unlock_password_rejected
+import dev.qualia.qualia2fa.resources.error_vault_does_not_match_password
 import dev.qualia.qualia2fa.resources.filter_image_files
 import dev.qualia.qualia2fa.resources.message_master_key_reset
+import dev.qualia.qualia2fa.resources.message_biometric_disabled
+import dev.qualia.qualia2fa.resources.message_biometric_enabled
+import dev.qualia.qualia2fa.resources.message_password_changed
+import dev.qualia.qualia2fa.resources.settings_biometric_unavailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -49,13 +62,26 @@ private sealed interface Phase {
      * [reason] is why the vault is locked, when the user is looking at a lock rather than at
      * a first run.
      */
-    data class Login(val mode: LoginMode, val reason: Status?) : Phase
+    data class Login(val mode: LoginMode, val reason: Status?, val passwordAvailable: Boolean = true) : Phase
 
     /** Logging in on a new device: the pairing handshake, without navigation. */
     data object Joining : Phase
 
     /** Inside the main screens, on [tab]. */
     data class Main(val tab: Tab) : Phase
+
+    /**
+     * A vault exists but has no unlock password yet.
+     *
+     * The master key is in memory because the legacy platform store (or a fresh registration)
+     * produced it. The vault is not written until the password is confirmed, so cancelling
+     * leaves the device as it was.
+     */
+    data class SetPassword(
+        val vault: Vault,
+        val masterKey: ByteArray,
+        val migrating: Boolean = false,
+    ) : Phase
 }
 
 /**
@@ -97,12 +123,32 @@ fun App(
      * therefore stops while this is false and restarts from the beginning when it is true again.
      */
     active: Boolean = true,
+    /**
+     * The platform half of the biometric path, or `null` on a platform that has none.
+     *
+     * The Android build passes a Keystore/Prompt implementation; the desktop build passes
+     * nothing, so the settings screen reports the path as unavailable instead of offering
+     * a button that cannot work.
+     */
+    authSealer: AuthSealer? = null,
 ) {
     var language by remember { mutableStateOf(settings.language()) }
     var theme by remember { mutableStateOf(settings.theme()) }
     var phase by remember { mutableStateOf<Phase>(Phase.Loading) }
     var vault by remember { mutableStateOf<Vault?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    // The application lock is enabled once a marker is seen or written. `passwordAvailable`
+    // is what the lock actually holds now, not what the marker recorded.
+    var lockEnabled by remember { mutableStateOf(false) }
+    var passwordAvailable by remember { mutableStateOf(true) }
+    // The platform-authenticated path (`master.key.bio`). `biometricEnabled` mirrors the lock
+    // files; the availability is what the platform reports, asked when it is needed.
+    var biometricEnabled by remember { mutableStateOf(false) }
+    var biometricAvailability by remember { mutableStateOf<AuthAvailability?>(null) }
+    // A lock operation that was interrupted after its wrap was written. The next successful
+    // password unlock finishes it (writes the marker, deletes the pending file and the legacy
+    // platform key) before the vault is shown.
+    var pendingLockSetup by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
     // Unlocking again from the login screen starts the same read the window started with, and
     // that read waits for the loading screen to have been up long enough: it is a coroutine.
@@ -145,6 +191,19 @@ fun App(
     val recoveryVaultFailed = stringResource(Res.string.error_recovery_vault_failed)
     val recoveryRejected = stringResource(Res.string.error_recovery_rejected)
     val recoveryBareVault = stringResource(Res.string.error_recovery_bare_vault)
+    val unlockRejected = stringResource(Res.string.error_unlock_password_rejected)
+    val lockUnreadable = stringResource(Res.string.error_lock_unreadable)
+    val lockPending = stringResource(Res.string.error_lock_pending)
+    val vaultDoesNotMatchPassword = stringResource(Res.string.error_vault_does_not_match_password)
+    val passwordWrapFailed = stringResource(Res.string.error_password_wrap_failed)
+    val setPasswordRequired = stringResource(Res.string.error_set_password_required)
+    val passwordChanged = stringResource(Res.string.message_password_changed)
+    val oldPasswordRejected = stringResource(Res.string.error_old_password_rejected)
+    val biometricBlobUnreadable = stringResource(Res.string.error_biometric_blob_unreadable)
+    val biometricFailed = stringResource(Res.string.error_biometric_failed)
+    val biometricEnabledMessage = stringResource(Res.string.message_biometric_enabled)
+    val biometricDisabledMessage = stringResource(Res.string.message_biometric_disabled)
+    val biometricUnavailable = stringResource(Res.string.settings_biometric_unavailable)
 
     val picker = rememberFilePicker()
     val camera = hasCamera()
@@ -195,9 +254,44 @@ fun App(
         val store = device?.masterKeyStore
         val data = device?.loadVault()
         val hasKey = store != null && Qualia.hasMasterKey(store)
+        val lockState = device?.let(::detectLockState)
 
         val target =
             when {
+                // The application lock comes before the platform key store. A password wrap
+                // needs no platform store at all, and a machine whose platform store failed
+                // must still be able to open a locked vault with its password.
+                lockState is LockState.Enabled -> {
+                    lockEnabled = true
+                    passwordAvailable = lockState.password
+                    biometricEnabled = lockState.biometric
+                    pendingLockSetup = lockState.pending
+                    vault = null
+                    message = null
+                    Phase.Login(
+                        LoginMode.PasswordLocked,
+                        null,
+                        passwordAvailable = lockState.password,
+                    )
+                }
+
+                // A lock file exists but the state cannot be trusted. This is deliberately
+                // **not** the legacy path: opening the vault without authentication here would
+                // be exactly the bypass the lock exists to prevent.
+                lockState is LockState.Broken -> {
+                    lockEnabled = true
+                    passwordAvailable = false
+                    biometricEnabled = false
+                    vault = null
+                    message =
+                        if (lockState.reason == BrokenLock.PendingInProgress) {
+                            lockPending
+                        } else {
+                            lockUnreadable
+                        }
+                    Phase.Login(LoginMode.Unreadable, null)
+                }
+
                 // Nowhere to keep a master key: this machine has no platform key store that
                 // can hold a key-encryption key. Said out loud, because every action the
                 // login screen offers would fail on it.
@@ -237,8 +331,19 @@ fun App(
                         vault = null
                         Phase.Login(LoginMode.Unreadable, null)
                     } else {
-                        adopt(opened)
-                        Phase.Main(Tab.TwoFactor)
+                        // A 0.3.0 device: the vault opened through the legacy platform
+                        // store. The master key must become a password wrap before the
+                        // vault is shown again, so the old no-prompt path is removed in
+                        // the same operation that creates the lock.
+                        val master = store.load()?.copyOf()
+                        if (master == null) {
+                            vault = null
+                            message = lockUnreadable
+                            Phase.Login(LoginMode.Unreadable, null)
+                        } else {
+                            vault = null
+                            Phase.SetPassword(opened, master, migrating = true)
+                        }
                     }
                 }
             }
@@ -251,8 +356,257 @@ fun App(
     /** Drops the key material and returns to the login screen, which now says why. */
     fun lock(reason: Status) {
         vault = null
-        phase = Phase.Login(LoginMode.Locked, reason)
+        phase =
+            if (lockEnabled) {
+                Phase.Login(LoginMode.PasswordLocked, reason, passwordAvailable)
+            } else {
+                Phase.Login(LoginMode.Locked, reason)
+            }
         clipboard.setText(AnnotatedString(""))
+    }
+
+    /**
+     * Completes a lock operation that was interrupted after its wrap was written.
+     *
+     * The password has just opened the vault, so the wrap exists and is usable. The legacy
+     * platform key is deleted before the marker is written: if that fails, the pending file
+     * stays and the next unlock tries again, instead of leaving a no-prompt key behind a lock
+     * that claims to be enabled.
+     */
+    fun finishPendingLock(device: VaultStorage): Boolean {
+        val marker = Qualia.lockMarker(true, false, currentTimeSeconds()) ?: return false
+        return try {
+            device.masterKeyStore?.delete()
+            if (device.masterKeyStore?.load() != null) return false
+            device.writeLockFile(LockFile.Marker, marker)
+            device.deleteLockFile(LockFile.Pending)
+            lockEnabled = true
+            passwordAvailable = true
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Opens the vault with the unlock password.
+     *
+     * The derivation is deliberately off the main thread: Argon2id with the recommended
+     * parameters takes long enough to freeze the screen. The master key exists only inside
+     * [Qualia.openVaultWithPassword]; nothing is written to the platform key store, so locking
+     * again really means the key is gone.
+     */
+    fun unlockWithPassword(password: String) {
+        val device = storage
+        if (device == null) {
+            message = noKeyStore
+            return
+        }
+        val wrap = device.readLockFile(LockFile.PasswordWrap)
+        val data = device.loadVault()
+        if (wrap == null || data == null) {
+            message = lockUnreadable
+            return
+        }
+
+        scope.launch {
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    Qualia.openVaultWithPassword(data, wrap, password)
+                }
+            when (outcome) {
+                is Qualia.PasswordOpen.Opened -> {
+                    if (pendingLockSetup && finishPendingLock(device)) {
+                        pendingLockSetup = false
+                    }
+                    adopt(outcome.vault)
+                }
+                Qualia.PasswordOpen.WrongPassword -> message = unlockRejected
+                Qualia.PasswordOpen.Unreadable -> message = lockUnreadable
+                Qualia.PasswordOpen.VaultMismatch -> message = vaultDoesNotMatchPassword
+            }
+        }
+    }
+
+    /**
+     * Opens the vault through the platform authentication path.
+     *
+     * The gesture runs off the main thread: on Windows it is a Hello prompt with its own
+     * message loop, and on Android it is a `BiometricPrompt`. A failure never changes any
+     * lock file — the blob stays and the password path is still there.
+     */
+    fun unlockWithBiometric() {
+        val device = storage
+        val blob = device?.readLockFile(LockFile.BiometricWrap)
+        val data = device?.loadVault()
+        if (device == null || blob == null || data == null) {
+            message = biometricBlobUnreadable
+            return
+        }
+
+        scope.launch {
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    val store = Qualia.authBoundKeyStore(authSealer)
+                    Qualia.openVaultWithAuthBound(store, data, blob)
+                }
+            when (outcome) {
+                is Qualia.PasswordOpen.Opened -> {
+                    if (pendingLockSetup && finishPendingLock(device)) {
+                        pendingLockSetup = false
+                    }
+                    adopt(outcome.vault)
+                }
+                Qualia.PasswordOpen.WrongPassword,
+                Qualia.PasswordOpen.Unreadable -> message = biometricBlobUnreadable
+                Qualia.PasswordOpen.VaultMismatch -> message = vaultDoesNotMatchPassword
+            }
+        }
+    }
+
+    /**
+     * Adds the platform-authenticated wrap of the open vault.
+     *
+     * The order is the safe one: the blob is written only after the platform released a key
+     * that wrapped this vault's master key, and the marker is updated last. A cancel or a
+     * platform failure leaves the device exactly as it was.
+     */
+    fun enableBiometric(onResult: (String?) -> Unit) {
+        val device = storage
+        val current = vault
+        if (device == null || current == null) {
+            onResult(biometricFailed)
+            return
+        }
+
+        scope.launch {
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    val store = Qualia.authBoundKeyStore(authSealer)
+                    val availability = store.availability
+                    if (availability !is AuthAvailability.Available) {
+                        return@withContext null to availability
+                    }
+                    if (!store.create()) return@withContext null to availability
+                    current.wrapMasterForAuthBound(store) to availability
+                }
+            val (blob, availability) = outcome
+            if (availability !is AuthAvailability.Available) {
+                onResult(
+                    if (availability is AuthAvailability.Unavailable) {
+                        "$biometricUnavailable ${availability.reason}"
+                    } else {
+                        biometricUnavailable
+                    },
+                )
+                return@launch
+            }
+            if (blob == null) {
+                onResult(biometricFailed)
+                return@launch
+            }
+            val marker = Qualia.lockMarker(true, true, currentTimeSeconds())
+            val written =
+                try {
+                    device.writeLockFile(LockFile.BiometricWrap, blob)
+                    if (marker != null) device.writeLockFile(LockFile.Marker, marker)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            if (written) {
+                biometricEnabled = true
+                onResult(biometricEnabledMessage)
+            } else {
+                runCatching { device.deleteLockFile(LockFile.BiometricWrap) }
+                onResult(biometricFailed)
+            }
+        }
+    }
+
+    /**
+     * Removes the platform-authenticated wrap.
+     *
+     * The platform credential is deleted by the blob's own credential id, so this works
+     * after a restart when the store no longer remembers it. The marker is rewritten with
+     * `biometric = false` only after the blob is gone.
+     */
+    fun disableBiometric(onResult: (String?) -> Unit) {
+        val device = storage
+        if (device == null) {
+            onResult(biometricFailed)
+            return
+        }
+        val blob = device.readLockFile(LockFile.BiometricWrap)
+
+        scope.launch {
+            val deleted =
+                withContext(Dispatchers.Default) {
+                    val store = Qualia.authBoundKeyStore(authSealer)
+                    when {
+                        blob == null -> true
+                        store.deleteBlob(blob) -> true
+                        else -> false
+                    }
+                }
+            val marker = Qualia.lockMarker(passwordAvailable, false, currentTimeSeconds())
+            val written =
+                try {
+                    device.deleteLockFile(LockFile.BiometricWrap)
+                    if (marker != null) device.writeLockFile(LockFile.Marker, marker)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            if (deleted && written) {
+                biometricEnabled = false
+                onResult(biometricDisabledMessage)
+            } else {
+                onResult(biometricFailed)
+            }
+        }
+    }
+
+    /**
+     * Rotates the unlock password of the open vault.
+     *
+     * The native layer checks the old password against the wrap and this vault's master key;
+     * the new wrap is written atomically over the old one. A failed write leaves the old
+     * password working, which is the only safe direction.
+     */
+    fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        onResult: (String?) -> Unit,
+    ) {
+        val device = storage
+        val current = vault
+        val wrap = device?.readLockFile(LockFile.PasswordWrap)
+        if (device == null || current == null || wrap == null) {
+            onResult(lockUnreadable)
+            return
+        }
+
+        scope.launch {
+            val outcome =
+                withContext(Dispatchers.Default) {
+                    current.rewrapLockPassword(wrap, oldPassword, newPassword)
+                }
+            when (outcome) {
+                is PasswordChange.Wrapped -> {
+                    val written =
+                        try {
+                            device.writeLockFile(LockFile.PasswordWrap, outcome.wrap)
+                            true
+                        } catch (_: Exception) {
+                            false
+                        }
+                    onResult(if (written) passwordChanged else passwordWrapFailed)
+                }
+                PasswordChange.WrongPassword -> onResult(oldPasswordRejected)
+                PasswordChange.Failed -> onResult(passwordWrapFailed)
+            }
+        }
     }
 
     /**
@@ -267,8 +621,90 @@ fun App(
     fun resetDevice() {
         storage?.reset()
         vault = null
+        lockEnabled = false
+        passwordAvailable = true
         message = masterKeyReset
         phase = Phase.Login(LoginMode.FirstRun, null)
+    }
+
+    /**
+     * Creates the master key and the vault object in memory, then asks for the unlock password.
+     *
+     * The platform store is deliberately **not** used for the master key: registration writes
+     * through an ephemeral store, and the bytes are handed to the password screen. Nothing is
+     * written to disk until that screen confirms, so a crash or a cancel leaves no half-locked
+     * vault behind.
+     */
+    fun prepareNewVault() {
+        val device = storage
+        if (device == null || device.masterKeyStore == null) {
+            message = noKeyStore
+            return
+        }
+
+        val ephemeral = Qualia.ephemeralMasterKeyStore()
+        val registration = Qualia.register(ephemeral, DEVICE_LABEL)
+        val created = registration?.vault ?: Qualia.createLocalVault(ephemeral)
+        val master = ephemeral.load()?.copyOf()
+        ephemeral.delete()
+
+        if (created == null || master == null) {
+            master?.let(::wipe)
+            message = noKeyStore
+            return
+        }
+        message = null
+        phase = Phase.SetPassword(created, master)
+    }
+
+    /** Abandons the setup; the in-memory master key is wiped and nothing was written. */
+    fun cancelLockSetup() {
+        val current = phase as? Phase.SetPassword ?: return
+        wipe(current.masterKey)
+        vault = null
+        if (current.migrating) {
+            // The legacy key and vault are untouched. The user can try the migration again
+            // (Unlock), import a vault, or reset; the vault must not be usable without a
+            // password, so this is deliberately not the first-run screen.
+            message = setPasswordRequired
+            phase = Phase.Login(LoginMode.Unreadable, null)
+        } else {
+            message = null
+            phase = Phase.Login(LoginMode.FirstRun, null)
+        }
+    }
+
+    /**
+     * Writes the lock and, only after it verifies, the vault.
+     *
+     * The order is "failed setup leaves either the old state or a recoverable pending state".
+     * The password wrap is computed before any file is touched, so a crash during Argon2id
+     * leaves nothing; after that the pending file marks the window in which the next start
+     * must finish the operation.
+     */
+    fun completeLockSetup(password: String) {
+        val current = phase as? Phase.SetPassword ?: return
+        val device = storage ?: return
+        val data = current.vault.serialize()
+        if (data == null) {
+            message = serializeFailed
+            return
+        }
+
+        scope.launch {
+            val written =
+                withContext(Dispatchers.Default) {
+                    writeLockFiles(device, data, current.masterKey, password)
+                }
+            if (!written) {
+                message = passwordWrapFailed
+                return@launch
+            }
+            wipe(current.masterKey)
+            lockEnabled = true
+            passwordAvailable = true
+            adopt(current.vault)
+        }
     }
 
     /**
@@ -280,35 +716,48 @@ fun App(
      */
     fun restoreFrom(file: ByteArray, passphrase: String) {
         val device = storage
-        val keyStore = device?.masterKeyStore
-        if (device == null || keyStore == null) {
+        val platformStore = device?.masterKeyStore
+        if (device == null || platformStore == null) {
             message = noKeyStore
             return
         }
 
         scope.launch {
-            // Argon2id is deliberately expensive; running it here would freeze the login
-            // screen for the whole derivation. The file read and the vault open join it off
-            // the main thread, and only the resulting state changes come back to it.
+            // The recovered master key goes into an ephemeral store, not the platform one:
+            // the password screen writes the lock and only then is the vault saved. Argon2id
+            // is deliberately expensive, hence the background dispatcher.
+            val ephemeral = Qualia.ephemeralMasterKeyStore()
             val outcome =
                 withContext(Dispatchers.Default) {
-                    restorePortableFile(file, passphrase, keyStore, device.loadVault())
+                    restorePortableFile(file, passphrase, ephemeral, device.loadVault())
                 }
             when (outcome) {
                 is PortableRestore.Recovered -> {
-                    val data = outcome.vault.serialize()
-                    if (data == null) {
-                        message = serializeFailed
+                    val master = ephemeral.load()?.copyOf()
+                    ephemeral.delete()
+                    if (master == null) {
+                        message = recoveryVaultFailed
                     } else {
-                        device.saveVault(data)
-                        adopt(outcome.vault)
+                        phase = Phase.SetPassword(outcome.vault, master)
                     }
                 }
 
-                PortableRestore.KeyOnly -> message = recoveryKeyOnly
-                PortableRestore.BareVault -> message = recoveryBareVault
-                PortableRestore.VaultFailed -> message = recoveryVaultFailed
-                PortableRestore.Rejected -> message = recoveryRejected
+                PortableRestore.KeyOnly -> {
+                    ephemeral.delete()
+                    message = recoveryKeyOnly
+                }
+                PortableRestore.BareVault -> {
+                    ephemeral.delete()
+                    message = recoveryBareVault
+                }
+                PortableRestore.VaultFailed -> {
+                    ephemeral.delete()
+                    message = recoveryVaultFailed
+                }
+                PortableRestore.Rejected -> {
+                    ephemeral.delete()
+                    message = recoveryRejected
+                }
             }
         }
     }
@@ -366,36 +815,7 @@ fun App(
                                 message = message,
                                 language = language,
                                 onSelectLanguage = selectLanguage,
-                                onCreateVault = {
-                                    val device = storage
-                                    if (device == null || store == null) {
-                                        message = noKeyStore
-                                    } else {
-                                        val registration = Qualia.register(store, DEVICE_LABEL)
-                                        if (registration != null) {
-                                            val data = registration.vault.serialize()
-                                            if (data == null) {
-                                                message = serializeFailed
-                                            } else {
-                                                device.saveVault(data)
-                                                adopt(registration.vault)
-                                            }
-                                        } else {
-                                            // The platform key store holds the device identity, and
-                                            // without it this device cannot pair or sync. A local
-                                            // vault is still useful, but it is a different thing and
-                                            // the settings screen says so.
-                                            val created = Qualia.createLocalVault(store)
-                                            val data = created?.serialize()
-                                            if (created == null || data == null) {
-                                                message = noKeyStore
-                                            } else {
-                                                device.saveVault(data)
-                                                adopt(created)
-                                            }
-                                        }
-                                    }
-                                },
+                                onCreateVault = ::prepareNewVault,
                                 onJoin = {
                                     if (storage == null || store == null) {
                                         message = noKeyStore
@@ -405,6 +825,10 @@ fun App(
                                     }
                                 },
                                 onUnlock = { scope.launch { openExisting() } },
+                                onUnlockWithPassword = ::unlockWithPassword,
+                                passwordAvailable = current.passwordAvailable,
+                                biometricAvailable = biometricEnabled,
+                                onUnlockWithBiometric = ::unlockWithBiometric,
                                 // The way out of the two states where this device holds
                                 // something it cannot use: the settings cannot be reached
                                 // without an open vault, and those states are exactly the ones
@@ -413,15 +837,22 @@ fun App(
                                 onRecover = ::restoreFrom,
                             )
 
+                        is Phase.SetPassword ->
+                            SetPasswordScreen(
+                                message = message,
+                                onConfirm = ::completeLockSetup,
+                                onCancel = ::cancelLockSetup,
+                            )
+
                         Phase.Joining ->
                             JoinAccountScreen(
                                 storage = storage,
-                                onJoined = { joined ->
+                                onJoined = { joined, master ->
                                     // The account's entries arrive by a sync rather than by the
-                                    // login itself, but that is the user's next step, not their
-                                    // destination: the device lands where a device always lands,
-                                    // and asks for the sync from there.
-                                    adopt(joined)
+                                    // login itself, but the lock is written before the vault is:
+                                    // a joined device must not spend even one session without
+                                    // the password it will need after a restart.
+                                    phase = Phase.SetPassword(joined, master)
                                 },
                                 onCancel = {
                                     vault = null
@@ -465,11 +896,16 @@ fun App(
                                                 protection = protection,
                                                 identity = identity,
                                                 masterKeyStore = store,
+                                                lockEnabled = lockEnabled,
+                                                biometricEnabled = biometricEnabled,
                                                 language = language,
                                                 onSelectLanguage = selectLanguage,
                                                 theme = theme,
                                                 onSelectTheme = selectTheme,
                                                 onLock = { lock(Status.Locked) },
+                                                onEnableBiometric = ::enableBiometric,
+                                                onDisableBiometric = ::disableBiometric,
+                                                onChangePassword = ::changePassword,
                                                 onImported = { imported ->
                                                     // The account changed under this device: the
                                                     // file on disk belongs to the old one, so the
@@ -499,6 +935,43 @@ fun App(
                 }
             }
         }
+    }
+}
+
+/**
+ * Writes the password wrap, the vault and the marker for a vault that is being set up.
+ *
+ * Returns `true` only when the wrap was verified, the legacy platform key is gone and the
+ * marker and pending files are in their final state. The password wrap is computed before any
+ * file is touched, so a crash during Argon2id leaves nothing behind; after that the pending
+ * file marks the window in which the next start must finish the operation.
+ */
+internal fun writeLockFiles(
+    device: VaultStorage,
+    vaultData: ByteArray,
+    masterKey: ByteArray,
+    password: String,
+): Boolean {
+    val now = currentTimeSeconds()
+    val pending = Qualia.lockPending(now) ?: return false
+    val wrap = Qualia.wrapMasterKeyWithPassword(masterKey, password) ?: return false
+    return try {
+        device.writeLockFile(LockFile.Pending, pending)
+        device.writeLockFile(LockFile.PasswordWrap, wrap)
+        if (!Qualia.verifyPasswordWrap(wrap, password, masterKey)) {
+            device.deleteLockFile(LockFile.PasswordWrap)
+            device.deleteLockFile(LockFile.Pending)
+            return false
+        }
+        device.saveVault(vaultData)
+        device.masterKeyStore?.delete()
+        if (device.masterKeyStore?.load() != null) return false
+        val marker = Qualia.lockMarker(true, false, now) ?: return false
+        device.writeLockFile(LockFile.Marker, marker)
+        device.deleteLockFile(LockFile.Pending)
+        true
+    } catch (_: Exception) {
+        false
     }
 }
 

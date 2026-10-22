@@ -132,6 +132,9 @@ kotlin {
                 // flavor is the one that carries JNA's dispatcher for Android, and 5.17 or
                 // newer is what understands 16 KB page sizes.
                 implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+                // The Android Keystore + BiometricPrompt half of the bioauth crate. It is
+                // Android-only: the desktop target has no Keystore and no prompt.
+                implementation("com.qiushui1012.lib:qualia-bioauth-android:0.1.0")
             }
         }
         commonMain.dependencies {

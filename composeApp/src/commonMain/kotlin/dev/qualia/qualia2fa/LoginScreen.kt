@@ -37,17 +37,21 @@ import dev.qualia.qualia2fa.resources.action_reset
 import dev.qualia.qualia2fa.resources.action_reset_master_key
 import dev.qualia.qualia2fa.resources.action_restore
 import dev.qualia.qualia2fa.resources.action_unlock
+import dev.qualia.qualia2fa.resources.action_unlock_biometric
 import dev.qualia.qualia2fa.resources.dialog_import_plain_vault_hint
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_text
 import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
 import dev.qualia.qualia2fa.resources.dialog_import_vault
 import dev.qualia.qualia2fa.resources.dialog_reset_title
+import dev.qualia.qualia2fa.resources.error_lock_unreadable
+import dev.qualia.qualia2fa.resources.field_unlock_password
 import dev.qualia.qualia2fa.resources.filter_portable_files
 import dev.qualia.qualia2fa.resources.first_run_intro
 import dev.qualia.qualia2fa.resources.first_run_join_explainer
 import dev.qualia.qualia2fa.resources.first_run_no_hardware_warning
 import dev.qualia.qualia2fa.resources.login_key_unreadable
 import dev.qualia.qualia2fa.resources.login_locked_explainer
+import dev.qualia.qualia2fa.resources.login_password_explainer
 import dev.qualia.qualia2fa.resources.login_reset_hint
 import dev.qualia.qualia2fa.resources.login_reset_text
 import dev.qualia.qualia2fa.resources.login_subtitle
@@ -69,6 +73,9 @@ enum class LoginMode {
 
     /** A vault exists and is locked: the only action is unlocking it. */
     Locked,
+
+    /** The application lock is enabled: unlocking needs the password set on this device. */
+    PasswordLocked,
 
     /** A master key exists, but the vault cannot be opened with it right now. */
     Unreadable,
@@ -118,6 +125,10 @@ fun LoginScreen(
     onCreateVault: () -> Unit,
     onJoin: () -> Unit,
     onUnlock: () -> Unit,
+    onUnlockWithPassword: (String) -> Unit,
+    passwordAvailable: Boolean = true,
+    biometricAvailable: Boolean = false,
+    onUnlockWithBiometric: () -> Unit = {},
     onReset: () -> Unit,
     onRecover: (ByteArray, String) -> Unit,
 ) {
@@ -175,6 +186,10 @@ fun LoginScreen(
                             onCreateVault,
                             onJoin,
                             onUnlock,
+                            onUnlockWithPassword,
+                            passwordAvailable,
+                            biometricAvailable,
+                            onUnlockWithBiometric,
                             onReset = { confirmingReset = true },
                             onRecoverFromFile = ::chooseRecoveryFile,
                         )
@@ -205,6 +220,10 @@ fun LoginScreen(
                         onCreateVault,
                         onJoin,
                         onUnlock,
+                        onUnlockWithPassword,
+                        passwordAvailable,
+                        biometricAvailable,
+                        onUnlockWithBiometric,
                         onReset = { confirmingReset = true },
                         onRecoverFromFile = ::chooseRecoveryFile,
                     )
@@ -301,10 +320,15 @@ private fun Actions(
     onCreateVault: () -> Unit,
     onJoin: () -> Unit,
     onUnlock: () -> Unit,
+    onUnlockWithPassword: (String) -> Unit,
+    passwordAvailable: Boolean,
+    biometricAvailable: Boolean,
+    onUnlockWithBiometric: () -> Unit,
     onReset: () -> Unit,
     onRecoverFromFile: () -> Unit,
 ) {
     val warningColor = MaterialTheme.colorScheme.error
+    var password by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.widthIn(max = 420.dp),
@@ -342,6 +366,50 @@ private fun Actions(
                     Text(stringResource(Res.string.action_unlock))
                 }
                 Hint(stringResource(Res.string.login_locked_explainer))
+            }
+
+            LoginMode.PasswordLocked -> {
+                Text(
+                    reason?.text() ?: stringResource(Res.string.status_locked),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (biometricAvailable) {
+                    OutlinedButton(
+                        onClick = onUnlockWithBiometric,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(Res.string.action_unlock_biometric))
+                    }
+                }
+                if (passwordAvailable) {
+                    SecretField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = stringResource(Res.string.field_unlock_password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = {
+                            val submitted = password
+                            password = ""
+                            onUnlockWithPassword(submitted)
+                        },
+                        enabled = password.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(Res.string.action_unlock))
+                    }
+                    Hint(stringResource(Res.string.login_password_explainer))
+                } else {
+                    Text(
+                        stringResource(Res.string.error_lock_unreadable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = warningColor,
+                    )
+                    OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
+                        Text(stringResource(Res.string.action_reset_master_key))
+                    }
+                }
             }
 
             LoginMode.Unreadable -> {

@@ -1,6 +1,27 @@
 package dev.qualia.qualia2fa
 
 /**
+ * The files that belong to the application lock, beside the vault.
+ *
+ * The names are part of the on-disk contract. The two wraps are independent ways into the
+ * same master key; `lock.marker` and `lock.pending` say whether the lock exists and whether
+ * an operation on it was interrupted.
+ */
+enum class LockFile(val fileName: String) {
+    /** The platform-authentication wrap (`master.key.bio`). */
+    BiometricWrap("master.key.bio"),
+
+    /** The password wrap (`master.key.pw`). */
+    PasswordWrap("master.key.pw"),
+
+    /** The lock is enabled; contains no secret. */
+    Marker("lock.marker"),
+
+    /** A lock operation is in progress; contains no secret. */
+    Pending("lock.pending"),
+}
+
+/**
  * Where the vault file and the master key live.
  *
  * The user interface works through this interface, so the same screens run on any
@@ -13,13 +34,29 @@ interface VaultStorage {
     /** Writes the vault file, replacing any previous contents. */
     fun saveVault(data: ByteArray)
 
+    /** Reads one of the lock files, or `null` when it is absent. */
+    fun readLockFile(file: LockFile): ByteArray?
+
     /**
-     * Removes the vault file and the master key, leaving this device as it was before it was
-     * registered.
+     * Writes one of the lock files atomically.
      *
-     * The two are removed together because either one alone is useless and, worse, misleading:
-     * a key without a vault opens nothing, and a vault without its key can never be read again
-     * on this device. What survives is what was exported or synced elsewhere.
+     * An interrupted write leaves either the previous contents or the new ones, never half
+     * of each: a truncated wrap is indistinguishable from a damaged one and would send the
+     * user to a recovery path they may not need.
+     */
+    fun writeLockFile(file: LockFile, data: ByteArray)
+
+    /** Deletes one of the lock files; deleting an absent file is not an error. */
+    fun deleteLockFile(file: LockFile)
+
+    /** Deletes every lock file. */
+    fun deleteLockState() {
+        LockFile.entries.forEach(::deleteLockFile)
+    }
+
+    /**
+     * Removes the vault file, the legacy master key and every lock file, leaving this device
+     * as it was before it was registered.
      *
      * Removing something that is absent is not an error: a device that was never registered
      * has nothing to remove, and asking for a reset is still a reasonable thing to have done.

@@ -29,7 +29,6 @@ import dev.qualia.qualia2fa.resources.action_scan_reply
 import dev.qualia.qualia2fa.resources.error_image_has_no_pairing_code
 import dev.qualia.qualia2fa.resources.error_image_has_no_reply
 import dev.qualia.qualia2fa.resources.error_image_unreadable
-import dev.qualia.qualia2fa.resources.error_joined_but_not_serialized
 import dev.qualia.qualia2fa.resources.field_pairing_code
 import dev.qualia.qualia2fa.resources.field_reply
 import dev.qualia.qualia2fa.resources.join_error_bad_code
@@ -79,7 +78,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun JoinAccountScreen(
     storage: VaultStorage?,
-    onJoined: (Vault) -> Unit,
+    onJoined: (Vault, ByteArray) -> Unit,
     onCancel: () -> Unit,
 ) {
     // Back leaves the joining flow rather than the application; there is a login screen behind
@@ -87,10 +86,12 @@ fun JoinAccountScreen(
     PlatformBackHandler { onCancel() }
 
     /**
-     * Where the transferred master key is written, or `null` when this machine has no platform
-     * key store — which the login screen reports before it ever offers this route.
+     * Whether this machine has a platform key store for the device identity.
+     *
+     * The master key itself is **not** written there any more: it goes through an ephemeral
+     * store into the password setup screen, which writes the lock before the vault file.
      */
-    val store = storage?.masterKeyStore
+    val hasPlatformStore = storage?.masterKeyStore != null
     var payload by remember { mutableStateOf("") }
     var joiner by remember { mutableStateOf<PairingJoiner?>(null) }
     var requestText by remember { mutableStateOf<String?>(null) }
@@ -112,7 +113,6 @@ fun JoinAccountScreen(
     val badCode = stringResource(Res.string.join_error_bad_code)
     val requestFailed = stringResource(Res.string.join_error_request_failed)
     val replyRejected = stringResource(Res.string.join_error_reply_rejected)
-    val notSerialized = stringResource(Res.string.error_joined_but_not_serialized)
     val lanRefused = stringResource(Res.string.lan_permission_refused)
     val lanUnavailable = stringResource(Res.string.join_lan_unavailable)
     val lanNoDevice = stringResource(Res.string.join_lan_no_device)
@@ -197,24 +197,21 @@ fun JoinAccountScreen(
                             return@launch
                         }
 
-                        val target = store
                         val device = storage
-                        if (target == null || device == null) {
+                        if (!hasPlatformStore || device == null) {
                             message = replyRejected
                             return@launch
                         }
-                        val joined = current.complete(answer.message, target)
-                        if (joined == null) {
+                        val ephemeral = Qualia.ephemeralMasterKeyStore()
+                        val joined = current.complete(answer.message, ephemeral)
+                        val master = ephemeral.load()?.copyOf()
+                        ephemeral.delete()
+                        if (joined == null || master == null) {
+                            master?.let(::wipe)
                             message = replyRejected
                             return@launch
                         }
-                        val data = joined.serialize()
-                        if (data == null) {
-                            message = notSerialized
-                            return@launch
-                        }
-                        device.saveVault(data)
-                        onJoined(joined)
+                        onJoined(joined, master)
                     } finally {
                         lanStage = null
                         lobby?.close()
@@ -292,18 +289,19 @@ fun JoinAccountScreen(
                 Button(
                     onClick = {
                         val current = joiner
-                        val target = store
                         val device = storage
-                        if (current == null || target == null || device == null) {
+                        if (current == null || !hasPlatformStore || device == null) {
                             message = replyRejected
                         } else {
-                            val joined = current.completeText(replyText.trim(), target)
-                            val data = joined?.serialize()
-                            if (joined == null || data == null) {
+                            val ephemeral = Qualia.ephemeralMasterKeyStore()
+                            val joined = current.completeText(replyText.trim(), ephemeral)
+                            val master = ephemeral.load()?.copyOf()
+                            ephemeral.delete()
+                            if (joined == null || master == null) {
+                                master?.let(::wipe)
                                 message = replyRejected
                             } else {
-                                device.saveVault(data)
-                                onJoined(joined)
+                                onJoined(joined, master)
                             }
                         }
                     },

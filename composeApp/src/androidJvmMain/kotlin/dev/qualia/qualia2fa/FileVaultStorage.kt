@@ -45,15 +45,37 @@ class FileVaultStorage(
         Files.move(temporary, vaultFile, StandardCopyOption.REPLACE_EXISTING)
     }
 
+    override fun readLockFile(file: LockFile): ByteArray? {
+        val path = dataDirectory.resolve(file.fileName)
+        return if (Files.isRegularFile(path)) Files.readAllBytes(path) else null
+    }
+
+    override fun writeLockFile(file: LockFile, data: ByteArray) {
+        Files.createDirectories(dataDirectory)
+        val target = dataDirectory.resolve(file.fileName)
+        val temporary = dataDirectory.resolve(file.fileName + ".tmp")
+        Files.write(temporary, data)
+        Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    override fun deleteLockFile(file: LockFile) {
+        val path = dataDirectory.resolve(file.fileName)
+        Files.deleteIfExists(path)
+        Files.deleteIfExists(dataDirectory.resolve(file.fileName + ".tmp"))
+    }
+
     override fun reset() {
-        // The key goes first, so an interrupted reset leaves a vault file that nothing can
-        // open: the device reports itself as never registered, which is the truth, and
-        // registering again writes over the orphan. The other order leaves a key with no
-        // vault, which the device reports as a vault that went missing — also usable, but it
-        // tells the user about a loss rather than about the reset they asked for.
+        // The platform material goes first, then the wraps, then the vault, and the marker
+        // last. An interruption at any point therefore leaves either a marker whose wraps are
+        // gone (the next start fails closed and offers restore/reset) or no vault at all;
+        // it never leaves an unmarked, unlockable vault behind.
         masterKeyStore?.delete()
+        deleteLockFile(LockFile.BiometricWrap)
+        deleteLockFile(LockFile.PasswordWrap)
         Files.deleteIfExists(vaultFile)
         Files.deleteIfExists(vaultFile.resolveSibling("vault.q2fa.tmp"))
+        deleteLockFile(LockFile.Pending)
+        deleteLockFile(LockFile.Marker)
     }
 
     companion object {

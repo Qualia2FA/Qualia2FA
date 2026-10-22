@@ -1,6 +1,8 @@
 package dev.qualia.qualia2fa
 
 import dev.qualia.qualia2fa.ffi.FfiAlgorithm
+import dev.qualia.qualia2fa.ffi.FfiAuthAvailability
+import dev.qualia.qualia2fa.ffi.FfiAuthBoundKeyStore
 import dev.qualia.qualia2fa.ffi.FfiConflict
 import dev.qualia.qualia2fa.ffi.FfiConflictSide
 import dev.qualia.qualia2fa.ffi.FfiDecision
@@ -27,6 +29,7 @@ import dev.qualia.qualia2fa.ffi.FfiLanPeer
 import dev.qualia.qualia2fa.ffi.FfiLogin
 import dev.qualia.qualia2fa.ffi.FfiPayloadKind
 import dev.qualia.qualia2fa.ffi.FfiPlatformKeys
+import dev.qualia.qualia2fa.ffi.FfiPlatformSealer
 import dev.qualia.qualia2fa.ffi.FfiPortableKind
 import dev.qualia.qualia2fa.ffi.FfiReceivedMessage
 import dev.qualia.qualia2fa.ffi.FfiRecipient
@@ -54,9 +57,16 @@ import dev.qualia.qualia2fa.ffi.exportFormatGroupCarrying as ffiExportFormatGrou
 import dev.qualia.qualia2fa.ffi.exportFormatNeedsPassword as ffiExportFormatNeedsPassword
 import dev.qualia.qualia2fa.ffi.generateSecretBase32 as ffiGenerateSecretBase32
 import dev.qualia.qualia2fa.ffi.importRecoveryKey as ffiImportRecoveryKey
+import dev.qualia.qualia2fa.ffi.isLockMarker as ffiIsLockMarker
+import dev.qualia.qualia2fa.ffi.isLockPasswordWrap as ffiIsLockPasswordWrap
+import dev.qualia.qualia2fa.ffi.isLockPending as ffiIsLockPending
+import dev.qualia.qualia2fa.ffi.lockMarker as ffiLockMarker
+import dev.qualia.qualia2fa.ffi.lockPending as ffiLockPending
 import dev.qualia.qualia2fa.ffi.maxGroupDepth as ffiMaxGroupDepth
 import dev.qualia.qualia2fa.ffi.openPortableFile as ffiOpenPortableFile
 import dev.qualia.qualia2fa.ffi.totpCode as ffiTotpCode
+import dev.qualia.qualia2fa.ffi.unwrapMasterKeyWithPassword as ffiUnwrapMasterKeyWithPassword
+import dev.qualia.qualia2fa.ffi.wrapMasterKeyWithPassword as ffiWrapMasterKeyWithPassword
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -122,6 +132,149 @@ interface MasterKeyStore {
      * account is something the user is entitled to know.
      */
     val backend: String
+}
+
+/**
+ * The platform half of the auth-bound key store, implemented per platform.
+ *
+ * On Android this is the Keystore key plus the `BiometricPrompt`; on a desktop there is no
+ * such thing and the application passes `null`. Keeping it an interface here means the
+ * application layer never sees the generated callback type.
+ */
+interface AuthSealer {
+    /** The backend name the blobs record: `android-keystore` or `apple-secure-enclave`. */
+    val backendName: String
+
+    /** What this device can do, without prompting. */
+    fun availability(): AuthAvailability
+
+    /**
+     * Seals 32 bytes, prompting if the platform requires it.
+     *
+     * May block for as long as the user takes; it is called off the main thread.
+     */
+    fun seal(plaintext: ByteArray): ByteArray?
+
+    /** Authenticates the user and returns the plaintext, or `null` on any failure. */
+    fun unseal(envelope: ByteArray): ByteArray?
+
+    /** Deletes the platform key. Idempotent. */
+    fun delete(): Boolean
+}
+
+/**
+ * Adapts [AuthSealer] to the generated callback interface.
+ *
+ * The generated interface speaks in `FfiException`; this bridge is the single place that
+ * turns a Kotlin failure into an error the Rust side classifies, so the crate's error
+ * vocabulary ("the prompt was dismissed") is not rebuilt at every call site.
+ */
+private class AuthSealerBridge(private val sealer: AuthSealer) : FfiPlatformSealer {
+    override fun backend(): String = sealer.backendName
+
+    override fun availability(): FfiAuthAvailability =
+        when (val value = sealer.availability()) {
+            is AuthAvailability.Available ->
+                FfiAuthAvailability.Available(value.backend, value.hardwareBacked)
+            is AuthAvailability.Unavailable -> FfiAuthAvailability.Unavailable(value.reason)
+            is AuthAvailability.Unsupported -> FfiAuthAvailability.Unsupported(value.reason)
+        }
+
+    override fun seal(plaintext: ByteArray): ByteArray =
+        sealer.seal(plaintext) ?: throw FfiException.AuthBound("bioauth_authentication_failed", "the seal failed")
+
+    override fun unseal(envelope: ByteArray): ByteArray =
+        sealer.unseal(envelope)
+            ?: throw FfiException.AuthBound("bioauth_authentication_failed", "the unseal failed")
+
+    override fun delete() {
+        if (!sealer.delete()) {
+            throw FfiException.AuthBound("bioauth_platform", "the platform key could not be deleted")
+        }
+    }
+}
+
+/**
+ * What the platform''s auth-bound key store can do, asked before offering the second path.
+ *
+ * [Available] means the platform mechanism works; [Unavailable] means this machine or user
+ * cannot use it right now; [Unsupported] means this build has no backend for the platform.
+ * The password path stays available in all three cases.
+ */
+sealed interface AuthAvailability {
+    /** The platform can create and use an authentication-bound key. */
+    data class Available(val backend: String, val hardwareBacked: Boolean) : AuthAvailability
+
+    /** The mechanism exists, but this machine or user cannot use it right now. */
+    data class Unavailable(val reason: String) : AuthAvailability
+
+    /** This build has no backend for the platform. */
+    data class Unsupported(val reason: String) : AuthAvailability
+}
+
+/**
+ * The platform store behind `master.key.bio`.
+ *
+ * This is the facade's view of `qualia-bioauth`: the host sees availability, create, wrap,
+ * unwrap and delete, and never sees the generated type. The master key crosses [wrap] and
+ * [unwrap] as bytes because the platform API needs them; [openVaultWithAuthBound] erases
+ * the copy as soon as the vault has been opened.
+ */
+class AuthBoundMasterKeyStore internal constructor(internal val inner: FfiAuthBoundKeyStore) {
+    /** What this machine can do, without prompting. */
+    val availability: AuthAvailability
+        get() =
+            when (val value = inner.availability()) {
+                is FfiAuthAvailability.Available ->
+                    AuthAvailability.Available(value.backend, value.hardwareBacked)
+                is FfiAuthAvailability.Unavailable ->
+                    AuthAvailability.Unavailable(value.reason)
+                is FfiAuthAvailability.Unsupported ->
+                    AuthAvailability.Unsupported(value.reason)
+            }
+
+    /** Creates the platform credential or key, prompting if the platform requires it. */
+    fun create(): Boolean =
+        try {
+            inner.create()
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+    /** Wraps [masterKey] into the complete `master.key.bio` blob. */
+    fun wrap(masterKey: ByteArray): ByteArray? =
+        try {
+            inner.wrap(masterKey)
+        } catch (_: Exception) {
+            null
+        }
+
+    /** Authenticates the user and returns the master key from [blob]. */
+    fun unwrap(blob: ByteArray): ByteArray? =
+        try {
+            inner.unwrap(blob)
+        } catch (_: Exception) {
+            null
+        }
+
+    /** Deletes the platform key or credential this store remembers. */
+    fun delete(): Boolean =
+        try {
+            inner.delete()
+            true
+        } catch (_: Exception) {
+            false
+        }
+
+    /** Deletes the platform credential named by [blob]. */
+    fun deleteBlob(blob: ByteArray): Boolean =
+        try {
+            inner.deleteBlob(blob)
+            true
+        } catch (_: Exception) {
+            false
+        }
 }
 
 /**
@@ -293,6 +446,24 @@ data class Entry(
  * The generated `FfiVault` is private to this file, so the binding layer can be replaced
  * without touching the user interface.
  */
+/**
+ * The result of changing the unlock password.
+ *
+ * [WrongPassword] is kept apart from [Failed]: the first means "the old password is wrong",
+ * the second means "the wrap could not be produced" and points at a retry or a different
+ * problem. The distinction is what the settings screen shows.
+ */
+sealed interface PasswordChange {
+    /** The new `master.key.pw` bytes. */
+    data class Wrapped(val wrap: ByteArray) : PasswordChange
+
+    /** The old password did not open the current wrap, or was empty. */
+    data object WrongPassword : PasswordChange
+
+    /** The wrap could not be produced; the old one is unchanged. */
+    data object Failed : PasswordChange
+}
+
 class Vault internal constructor(private val inner: FfiVault) {
     /**
      * The generated handle, for the parts of this file that need to hand the vault to the
@@ -620,6 +791,45 @@ class Vault internal constructor(private val inner: FfiVault) {
     fun serialize(): ByteArray? =
         try {
             inner.serialize()
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * Re-wraps this vault's master key with a new unlock password.
+     *
+     * [oldWrap] is the `master.key.pw` currently on disk. The native side checks the old
+     * password against it **and** against this vault's master key before producing the new
+     * wrap, so a wrong password or a wrap from another account is rejected here. The caller
+     * writes the new wrap atomically; if that write fails, the old file is still the one that
+     * opens the vault with the old password.
+     */
+    fun rewrapLockPassword(
+        oldWrap: ByteArray,
+        oldPassword: String,
+        newPassword: String,
+    ): PasswordChange =
+        try {
+            PasswordChange.Wrapped(inner.rewrapLockPassword(oldWrap, oldPassword, newPassword))
+        } catch (error: FfiException.Core) {
+            when (error.detail.kind) {
+                "lock_password_rejected", "lock_passphrase_empty" -> PasswordChange.WrongPassword
+                else -> PasswordChange.Failed
+            }
+        } catch (_: Exception) {
+            PasswordChange.Failed
+        }
+
+    /**
+     * Wraps this vault's master key with the platform auth-bound store.
+     *
+     * The bytes are the complete `master.key.bio`; the master key itself never reaches the
+     * host. Returns `null` when the platform refused or the user cancelled, in which case
+     * nothing has been written and the password path is untouched.
+     */
+    fun wrapMasterForAuthBound(store: AuthBoundMasterKeyStore): ByteArray? =
+        try {
+            inner.wrapMasterForAuthBound(store.inner)
         } catch (_: Exception) {
             null
         }
@@ -1275,6 +1485,202 @@ object Qualia {
      * the key can no longer be read, and that case is decided by opening the vault.
      */
     fun hasMasterKey(store: MasterKeyStore): Boolean = store.exists
+
+    // ── The application lock ─────────────────────────────────────────────────────
+
+    /**
+     * What a password unlock produced.
+     *
+     * [WrongPassword] and [Unreadable] are deliberately distinct: one means "type it again",
+     * the other means "this device no longer holds a usable wrap" and points at restore or
+     * reset. [VaultMismatch] means the wrap opened but the file beside it belongs to another
+     * account.
+     */
+    sealed interface PasswordOpen {
+        /** The password opened the wrap and the vault. */
+        data class Opened(val vault: Vault) : PasswordOpen
+
+        /** The password did not open the wrap. */
+        data object WrongPassword : PasswordOpen
+
+        /** The wrap is damaged, unsupported, or the native library could not read it. */
+        data object Unreadable : PasswordOpen
+
+        /** The wrap opened, but the vault file is damaged or belongs to another key. */
+        data object VaultMismatch : PasswordOpen
+    }
+
+    /**
+     * The `lock.marker` bytes for a device that has just enabled the lock.
+     *
+     * `null` means the values were refused (no wrap named, or a zero time), which a caller
+     * must treat as "do not write the marker" rather than as a transient failure.
+     */
+    fun lockMarker(password: Boolean, biometric: Boolean, migratedAt: Long): ByteArray? =
+        try {
+            ffiLockMarker(password, biometric, migratedAt.toULong())
+        } catch (_: Exception) {
+            null
+        }
+
+    /** The `lock.pending` bytes for an operation that is starting. */
+    fun lockPending(startedAt: Long): ByteArray? =
+        try {
+            ffiLockPending(startedAt.toULong())
+        } catch (_: Exception) {
+            null
+        }
+
+    /** Whether [bytes] are a `lock.marker` this build understands. */
+    fun isLockMarker(bytes: ByteArray): Boolean =
+        try {
+            ffiIsLockMarker(bytes)
+        } catch (_: Exception) {
+            false
+        }
+
+    /** Whether [bytes] are a `lock.pending` this build understands. */
+    fun isLockPending(bytes: ByteArray): Boolean =
+        try {
+            ffiIsLockPending(bytes)
+        } catch (_: Exception) {
+            false
+        }
+
+    /**
+     * Whether [bytes] are a structurally valid password wrap, without running Argon2id.
+     *
+     * This answers "is there a password path on this device"; only [openVaultWithPassword]
+     * answers "does this password open it".
+     */
+    fun isLockPasswordWrap(bytes: ByteArray): Boolean =
+        try {
+            ffiIsLockPasswordWrap(bytes)
+        } catch (_: Exception) {
+            false
+        }
+
+    /**
+     * Wraps [masterKey] with [password] and returns `master.key.pw`.
+     *
+     * The caller writes the returned bytes and wipes its own copy of [masterKey] as soon as
+     * the wrap exists. `null` means the wrap could not be produced; the caller must not
+     * proceed to delete the old material.
+     */
+    fun wrapMasterKeyWithPassword(masterKey: ByteArray, password: String): ByteArray? =
+        try {
+            ffiWrapMasterKeyWithPassword(masterKey, password)
+        } catch (_: Exception) {
+            null
+        }
+
+    /**
+     * Whether [password] opens [wrap] to exactly [expected].
+     *
+     * The unwrapped bytes exist only inside this call and are wiped before it returns. This
+     * is the "both wraps must yield the same master key" check, without opening a vault.
+     */
+    fun verifyPasswordWrap(wrap: ByteArray, password: String, expected: ByteArray): Boolean {
+        val key =
+            try {
+                ffiUnwrapMasterKeyWithPassword(wrap, password)
+            } catch (_: Exception) {
+                return false
+            }
+        return try {
+            key.contentEquals(expected)
+        } finally {
+            wipe(key)
+        }
+    }
+
+    /**
+     * A master key store that exists only until the caller deletes it.
+     *
+     * Used while a new vault is being created: the registration path writes the master key
+     * through a `MasterKeyStore`, and the platform store must not be that store any more —
+     * it would leave the no-prompt path the lock is meant to replace.
+     */
+    fun ephemeralMasterKeyStore(): MasterKeyStore = EphemeralMasterKeyStore(null)
+
+    /**
+     * Opens the auth-bound key store of this platform.
+     *
+     * Always returns a store: a platform without a backend answers `Unsupported` from
+     * [AuthBoundMasterKeyStore.availability] instead of failing to open.
+     */
+    fun authBoundKeyStore(): AuthBoundMasterKeyStore =
+        AuthBoundMasterKeyStore(FfiAuthBoundKeyStore.open())
+
+    /**
+     * Opens the auth-bound key store with the platform half supplied by [sealer].
+     *
+     * This is the path on a platform whose user-verification UI belongs to the application:
+     * the sealer owns the keystore calls and the prompt, and this facade only moves values.
+     * A `null` sealer means the platform has no such half, so the store reports
+     * [AuthAvailability.Unsupported] rather than pretending.
+     */
+    fun authBoundKeyStore(sealer: AuthSealer?): AuthBoundMasterKeyStore =
+        if (sealer == null) {
+            authBoundKeyStore()
+        } else {
+            AuthBoundMasterKeyStore(
+                FfiAuthBoundKeyStore.withHost(AuthSealerBridge(sealer), sealer.backendName),
+            )
+        }
+
+    /**
+     * Opens the vault with the master key the platform releases for [blob].
+     *
+     * The platform gesture happens inside `unwrap`. The master key then exists only in the
+     * ephemeral store used to open the vault, and both are erased before this returns.
+     */
+    fun openVaultWithAuthBound(
+        store: AuthBoundMasterKeyStore,
+        vaultData: ByteArray,
+        blob: ByteArray,
+    ): PasswordOpen {
+        val key = store.unwrap(blob) ?: return PasswordOpen.Unreadable
+        val ephemeral = EphemeralMasterKeyStore(key)
+        return try {
+            PasswordOpen.Opened(Vault(FfiVault.open(StoreBridge(ephemeral), vaultData)))
+        } catch (_: Exception) {
+            PasswordOpen.VaultMismatch
+        } finally {
+            ephemeral.delete()
+            wipe(key)
+        }
+    }
+
+    /**
+     * Unwraps the master key from [wrap] and opens [vaultData] with it.
+     *
+     * The key bytes exist only inside this call: the vault object keeps its own Rust-side
+     * copy, and both the Kotlin key and the short-lived store are wiped before returning.
+     */
+    fun openVaultWithPassword(vaultData: ByteArray, wrap: ByteArray, password: String): PasswordOpen {
+        val key =
+            try {
+                ffiUnwrapMasterKeyWithPassword(wrap, password)
+            } catch (error: FfiException.Core) {
+                return when (error.detail.kind) {
+                    "lock_password_rejected", "lock_passphrase_empty" -> PasswordOpen.WrongPassword
+                    else -> PasswordOpen.Unreadable
+                }
+            } catch (_: Exception) {
+                return PasswordOpen.Unreadable
+            }
+
+        val store = EphemeralMasterKeyStore(key)
+        return try {
+            PasswordOpen.Opened(Vault(FfiVault.open(StoreBridge(store), vaultData)))
+        } catch (_: Exception) {
+            PasswordOpen.VaultMismatch
+        } finally {
+            store.delete()
+            wipe(key)
+        }
+    }
 
     /**
      * Registers this device: generates the master key, creates the device identity in the
@@ -2559,6 +2965,39 @@ internal fun openWrappedMasterKeyStore(label: String): FfiWrappedMasterKeyStore?
     } catch (_: Exception) {
         null
     }
+
+/**
+ * A master key store that exists only for one call.
+ *
+ * The password wrap produces the master key as bytes; opening the vault needs a
+ * `MasterKeyStore`, and using the platform store would write the key back to disk and
+ * recreate the no-prompt path the lock exists to remove. This store hands the bytes to the
+ * binding layer and wipes them when [delete] is called, which the caller does in a `finally`.
+ *
+ * It reports software and no hardware backing: it really is a heap buffer for the duration of
+ * one call, and claiming otherwise would be exactly the silent downgrade the platform store
+ * documentation forbids.
+ */
+private class EphemeralMasterKeyStore(
+    private var key: ByteArray?,
+) : MasterKeyStore {
+    override fun load(): ByteArray? = key
+
+    override fun store(key: ByteArray) {
+        this.key = key.copyOf()
+    }
+
+    override fun delete() {
+        key?.let { wipe(it) }
+        key = null
+    }
+
+    override val exists: Boolean get() = key != null
+
+    override val isHardwareBacked: Boolean get() = false
+
+    override val backend: String get() = "memory"
+}
 
 /**
  * Adapts the facade's store interface to the one the binding layer expects.

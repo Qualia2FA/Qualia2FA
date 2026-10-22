@@ -394,4 +394,36 @@
     <string name="scan_keep_going">Got it — keep scanning the rest.</string>
     <string name="scan_frame_taken">Frame %1$d of %2$d</string>
     <string name="sync_frames_count">%1$d/%2$d</string>
+    <!-- The application lock -->
+    <string name="login_password_explainer">The vault is locked. Enter the unlock password you set on this device. This is not the passphrase of a recovery file.</string>
+    <string name="field_unlock_password">Unlock password</string>
+    <string name="error_unlock_password_rejected">That password did not open this device.</string>
+    <string name="error_lock_unreadable">This device has a lock, but no usable unlock material. Restore a vault from a backup, or reset this device.</string>
+    <string name="error_lock_pending">An unfinished lock operation was found. Unlock the device with its password to finish it, or reset this device.</string>
+    <string name="dialog_set_password_title">Set the unlock password</string>
+    <string name="action_set_password">Set password</string>
+    <string name="hint_unlock_password_minimum">Use at least 8 characters. There is no way to recover this password; a recovery file is the way back.</string>
+    <string name="error_password_wrap_failed">The unlock password could not be set up. Nothing was changed.</string>
+    <string name="error_vault_does_not_match_password">The password opened the lock, but the vault file does not belong to this account.</string>
+    <string name="set_password_explainer">This device has no unlock password yet. Set one now: it will be required whenever the vault is locked, and it is the only way back without a recovery file.</string>
+    <string name="error_set_password_required">This device must set an unlock password before the vault can be used. Set one, import a vault from a backup, or reset this device.</string>
+    <string name="settings_unlock_password">Unlock password</string>
+    <string name="settings_unlock_password_explainer">Changing it re-wraps the master key on this device. The old password stops working immediately; the recovery file and other devices are not affected.</string>
+    <string name="action_change_password">Change password</string>
+    <string name="dialog_change_password_title">Change unlock password</string>
+    <string name="field_current_password">Current password</string>
+    <string name="field_new_password">New password</string>
+    <string name="message_password_changed">The unlock password was changed.</string>
+    <string name="error_old_password_rejected">The current password is wrong.</string>
+    <string name="settings_import_requires_lock">Importing a vault while the lock is enabled would leave the old unlock password attached to a new key. Lock this device first, then use “Import vault” on the login screen.</string>
+    <string name="action_unlock_biometric">Use Windows Hello / fingerprint</string>
+    <string name="settings_biometric">Biometric unlock</string>
+    <string name="settings_biometric_explainer">A second wrap of the master key, unlocked by Windows Hello or the Android biometric prompt. The password stays the way back in if the platform credential is removed.</string>
+    <string name="settings_biometric_unavailable">This machine cannot offer the platform authentication path.</string>
+    <string name="action_enable_biometric">Enable biometric unlock</string>
+    <string name="action_disable_biometric">Disable biometric unlock</string>
+    <string name="message_biometric_enabled">Biometric unlock is enabled.</string>
+    <string name="message_biometric_disabled">Biometric unlock is disabled; the platform credential was deleted.</string>
+    <string name="error_biometric_failed">The platform authentication did not complete. Nothing was changed.</string>
+    <string name="error_biometric_blob_unreadable">The biometric unlock data on this device cannot be read. Use the password.</string>
 </resources>
