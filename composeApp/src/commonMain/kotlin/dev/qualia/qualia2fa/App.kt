@@ -446,9 +446,17 @@ fun App(
 
         scope.launch {
             val outcome =
-                withContext(Dispatchers.Default) {
-                    val store = Qualia.authBoundKeyStore(authSealer)
-                    Qualia.openVaultWithAuthBound(store, data, blob)
+                try {
+                    withContext(Dispatchers.Default) {
+                        val store = Qualia.authBoundKeyStore(authSealer)
+                        Qualia.openVaultWithAuthBound(store, data, blob)
+                    }
+                } catch (_: Exception) {
+                    // A platform half that fails before it can answer — a prompt that cannot
+                    // be shown, a key store that refuses to open — is reported like a refused
+                    // gesture rather than taking the application down with it.
+                    message = biometricBlobUnreadable
+                    return@launch
                 }
             when (outcome) {
                 is Qualia.PasswordOpen.Opened -> {
@@ -471,24 +479,29 @@ fun App(
      * that wrapped this vault's master key, and the marker is updated last. A cancel or a
      * platform failure leaves the device exactly as it was.
      */
-    fun enableBiometric(onResult: (String?) -> Unit) {
+    fun enableBiometric(onResult: (String?, Boolean) -> Unit) {
         val device = storage
         val current = vault
         if (device == null || current == null) {
-            onResult(biometricFailed)
+            onResult(biometricFailed, true)
             return
         }
 
         scope.launch {
             val outcome =
-                withContext(Dispatchers.Default) {
-                    val store = Qualia.authBoundKeyStore(authSealer)
-                    val availability = store.availability
-                    if (availability !is AuthAvailability.Available) {
-                        return@withContext null to availability
+                try {
+                    withContext(Dispatchers.Default) {
+                        val store = Qualia.authBoundKeyStore(authSealer)
+                        val availability = store.availability
+                        if (availability !is AuthAvailability.Available) {
+                            return@withContext null to availability
+                        }
+                        if (!store.create()) return@withContext null to availability
+                        current.wrapMasterForAuthBound(store) to availability
                     }
-                    if (!store.create()) return@withContext null to availability
-                    current.wrapMasterForAuthBound(store) to availability
+                } catch (_: Exception) {
+                    onResult(biometricFailed, true)
+                    return@launch
                 }
             val (blob, availability) = outcome
             if (availability !is AuthAvailability.Available) {
@@ -498,11 +511,12 @@ fun App(
                     } else {
                         biometricUnavailable
                     },
+                    true,
                 )
                 return@launch
             }
             if (blob == null) {
-                onResult(biometricFailed)
+                onResult(biometricFailed, true)
                 return@launch
             }
             val marker = Qualia.lockMarker(true, true, currentTimeSeconds())
@@ -516,10 +530,10 @@ fun App(
                 }
             if (written) {
                 biometricEnabled = true
-                onResult(biometricEnabledMessage)
+                onResult(biometricEnabledMessage, false)
             } else {
                 runCatching { device.deleteLockFile(LockFile.BiometricWrap) }
-                onResult(biometricFailed)
+                onResult(biometricFailed, true)
             }
         }
     }
@@ -531,23 +545,27 @@ fun App(
      * after a restart when the store no longer remembers it. The marker is rewritten with
      * `biometric = false` only after the blob is gone.
      */
-    fun disableBiometric(onResult: (String?) -> Unit) {
+    fun disableBiometric(onResult: (String?, Boolean) -> Unit) {
         val device = storage
         if (device == null) {
-            onResult(biometricFailed)
+            onResult(biometricFailed, true)
             return
         }
         val blob = device.readLockFile(LockFile.BiometricWrap)
 
         scope.launch {
             val deleted =
-                withContext(Dispatchers.Default) {
-                    val store = Qualia.authBoundKeyStore(authSealer)
-                    when {
-                        blob == null -> true
-                        store.deleteBlob(blob) -> true
-                        else -> false
+                try {
+                    withContext(Dispatchers.Default) {
+                        val store = Qualia.authBoundKeyStore(authSealer)
+                        when {
+                            blob == null -> true
+                            store.deleteBlob(blob) -> true
+                            else -> false
+                        }
                     }
+                } catch (_: Exception) {
+                    false
                 }
             val marker = Qualia.lockMarker(passwordAvailable, false, currentTimeSeconds())
             val written =
@@ -560,9 +578,9 @@ fun App(
                 }
             if (deleted && written) {
                 biometricEnabled = false
-                onResult(biometricDisabledMessage)
+                onResult(biometricDisabledMessage, false)
             } else {
-                onResult(biometricFailed)
+                onResult(biometricFailed, true)
             }
         }
     }
@@ -772,6 +790,31 @@ fun App(
     val store = storage?.masterKeyStore
 
     LaunchedEffect(Unit) { openExisting() }
+
+    // A launch starts with the platform gesture rather than with a tap: the user opened the
+    // application in order to get in, and the password is the way back in, not the first step.
+    //
+    // A lock taken while the application is running does not do this. Those states carry a
+    // [Status] — the lock button and the idle timeout both produce one — while a launch has
+    // no reason at all, which is exactly the difference. A prompt that appears under the
+    // user's hands while they are already looking at the screen is a surprise rather than a
+    // convenience, and the timeout in particular fires when they have walked away.
+    var launchGestureAttempted by remember { mutableStateOf(false) }
+    LaunchedEffect(phase, active) {
+        if (launchGestureAttempted || !active) return@LaunchedEffect
+        val current = phase as? Phase.Login ?: return@LaunchedEffect
+        val locked = current.mode == LoginMode.PasswordLocked || current.mode == LoginMode.Locked
+        if (!locked || current.reason != null || !biometricEnabled) return@LaunchedEffect
+        launchGestureAttempted = true
+        // Asked without prompting: a device whose credential was removed (a new enrolment, a
+        // hardware reset) would otherwise open the application with a failure message the user
+        // has not asked for. The button on the screen still reports that case when they tap it.
+        val available =
+            withContext(Dispatchers.Default) {
+                Qualia.authBoundKeyStore(authSealer).availability is AuthAvailability.Available
+            }
+        if (available) unlockWithBiometric()
+    }
 
     LaunchedEffect(phase, active) {
         // A locked device is not a vault to time out, and a picker in front of the application
