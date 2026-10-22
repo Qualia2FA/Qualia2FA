@@ -5,6 +5,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -50,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -58,7 +61,10 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -498,6 +504,25 @@ fun Hint(text: String) {
 }
 
 /**
+ * Drops the keyboard and the field's focus when a tap lands anywhere in this subtree.
+ *
+ * A tap on another field moves the focus there on its own; this is for the rest of the
+ * surface. The event is observed in the **initial** pass and never consumed, so the control
+ * under the pointer still receives its own click — a button press clears the caret before the
+ * action runs, which is the order a user expects.
+ */
+fun Modifier.clearFocusOnTap(): Modifier =
+    composed {
+        val focusManager = LocalFocusManager.current
+        pointerInput(focusManager) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                focusManager.clearFocus()
+            }
+        }
+    }
+
+/**
  * Asks for a passphrase, twice when it is being chosen rather than entered.
  *
  * Twice on export because a typo there is discovered when the file is the only way back, and
@@ -526,7 +551,10 @@ fun PassphraseDialog(
         properties = DialogDefaults,
         title = { Text(title) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+            Column(
+                modifier = Modifier.clearFocusOnTap(),
+                verticalArrangement = Arrangement.spacedBy(Space.s),
+            ) {
                 SecretField(
                     value = passphrase,
                     onValueChange = {
@@ -831,6 +859,7 @@ fun FloatingWindow(
             modifier =
                 Modifier
                     .fillMaxSize()
+                    .clearFocusOnTap()
                     .padding(start = Space.xl, top = Space.xl, end = Space.xl),
             contentAlignment = Alignment.Center,
         ) {

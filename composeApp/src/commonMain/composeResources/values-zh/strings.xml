@@ -19,18 +19,18 @@
     <!-- 登录：首次运行，或者保险库已锁定 -->
     <string name="login_subtitle">开始使用</string>
     <string name="action_create_vault">创建保险库</string>
-    <string name="action_join_existing_account">登录到已有账号</string>
+    <string name="action_join_existing_account">与其它设备配对</string>
     <string name="action_unlock">解锁</string>
-    <string name="first_run_intro">这台设备上还没有保险库。创建之后，条目只保存在本机，验证码离线可算。</string>
-    <string name="first_run_no_hardware_warning">注意：本机没有硬件密钥库，保护主密钥的是一把软件密钥，只有你的操作系统账户在保护它。继续即表示你接受这一点。</string>
-    <string name="first_run_join_explainer">登录会从一台已解锁的设备取得主密钥：那台设备显示一个码，本机用它生成请求，对方确认后把应答交回来。主密钥由这个码带外传递，不经过任何服务器。</string>
-    <string name="login_locked_explainer">保险库已锁定。解锁会重新从平台密钥库取出主密钥，不需要输入任何密码。</string>
-    <string name="login_key_unreadable">这台设备上有一把现在读不出来的主密钥。在这里创建新保险库会顶掉它，里面的条目会一起丢失——请先用恢复文件找回，在这台设备上或另一台设备上都可以。</string>
-    <string name="login_vault_missing">这台设备上有一把主密钥，但保险库文件不在了。从同一账号的另一台设备登录可以把条目带回来；在这里创建保险库会换一把新密钥，把本机从这个账号里切出去。</string>
-    <string name="login_reset_hint">如果本机已经打不开这个保险库，重置是回到「可以重新注册、或从另一台设备登录」的状态的办法。</string>
-    <string name="login_reset_text">重置会删掉本机为这个账号保存的全部内容：保险库文件、它旁边那份包裹字节，以及平台密钥库里能解开这些字节的那一条。没有导出、也没有同步过的条目会消失，本机也再也打不开那个保险库。设备身份保留，所以本机仍然可以登录这个账号。</string>
+    <string name="first_run_intro">此设备上暂无保险库，可选择配对或创建。2FA 条目仅存储在本地，验证码可离线计算。</string>
+    <string name="first_run_no_hardware_warning">注意：此设备没有硬件密钥库，由软件密钥保护主密钥，且该软件密钥仅由该操作系统账户保护。继续即为接受此缺陷。</string>
+    <string name="first_run_join_explainer">配对会从一台已解锁的设备取得主密钥。主密钥在配对过程中不经过任何服务器。</string>
+    <string name="login_locked_explainer">保险库已锁定。解锁会重新从平台密钥库取出主密钥，无需输入密码。</string>
+    <string name="login_key_unreadable">此设备上有一把现在无法读取的主密钥。创建新保险库会顶掉它，里面的条目会一并丢失——请先用恢复文件找回，在此设备上或另一台设备上都可以。</string>
+    <string name="login_vault_missing">此设备上有一把主密钥，但未找到保险库文件。与同一主密钥的另一台设备配对可以将条目带回；现在创建保险库会换一把新密钥，使此设备脱离该账户。</string>
+    <string name="login_reset_hint">如果此设备已经打不开旧保险库，可以通过重置回到「可以重新创建、或与其它设备配对」的状态。</string>
+    <string name="login_reset_text">重置会删除此设备为该账户保存的全部内容：保险库文件、加密信息，以及其对应的主密钥。未导出且未与其它设备同步过的条目会丢失。设备身份保留，所以此设备仍然可以登录该账户。</string>
     <string name="error_serialize_failed">创建失败：核心无法序列化保险库</string>
-    <string name="error_no_platform_key_store">创建失败：平台密钥库不可用，核心也拒绝了本机保险库</string>
+    <string name="error_no_platform_key_store">创建失败：平台密钥库不可用，核心也拒绝了此设备保险库</string>
 
     <!-- 锁定 -->
     <string name="status_locked">已锁定</string>
@@ -45,18 +45,18 @@
     <string name="field_otpauth_link">链接</string>
     <string name="hint_link_prefilled">剪贴板里有链接时会预先填好。</string>
     <string name="action_import">导入</string>
-    <string name="error_link_rejected">这不是 otpauth:// 链接，或者它的参数不被接受（种子必须是合法 Base32）。</string>
+    <string name="error_link_rejected">这不是 otpauth:// 链接，或者其参数不被接受（种子必须是合法 Base32）。</string>
     <string name="cd_add_entry">添加条目</string>
     <string name="cd_manage_groups">管理分组</string>
-    <string name="cd_expand_group">展开这个分组</string>
-    <string name="cd_collapse_group">收起这个分组</string>
+    <string name="cd_expand_group">展开该分组</string>
+    <string name="cd_collapse_group">收起该分组</string>
     <string name="cd_enter_selection">选择条目</string>
     <string name="cd_selection_all">全选</string>
     <string name="cd_selection_none">取消全选</string>
     <string name="selection_count">已选 %1$d 项</string>
     <string name="action_delete_selected">删除</string>
     <string name="dialog_delete_selected_title">删除这 %1$d 条条目？</string>
-    <string name="dialog_delete_selected_text">这个账号同步过的每台设备都会一起删掉它们，条目删掉之后验证码就找不回来了。</string>
+    <string name="dialog_delete_selected_text">其它设备也会在下次同步时删除它们，条目彻底删除之后无法找回。</string>
     <string name="message_entries_deleted">已删除 %1$d 条条目。</string>
     <string name="action_copy">复制</string>
     <string name="action_edit">编辑</string>
@@ -69,8 +69,8 @@
     <string name="action_continue">继续</string>
     <string name="code_changes_in">%1$d 秒后更换</string>
     <string name="code_counter">计数器 %1$d</string>
-    <string name="message_copied">已复制。</string>
-    <string name="message_copied_and_cleared">已复制；30 秒后自动清空剪贴板。</string>
+    <string name="message_copied">已复制</string>
+    <string name="message_copied_and_cleared">已复制；30 秒后自动清空剪贴板</string>
     <string name="default_entry_name">未命名</string>
     <string name="default_imported_entry_name">导入的条目</string>
 
@@ -85,16 +85,16 @@
     <string name="settings_groups">分组</string>
     <string name="groups_top">未分组</string>
     <string name="groups_top_hint">不属于任何分组的条目</string>
-    <string name="groups_empty">这个分组里没有条目</string>
+    <string name="groups_empty">该分组里没有条目</string>
     <string name="groups_order_hint">分组内条目的顺序会同步：两台设备必须一致。</string>
-    <string name="groups_remove_hint">删掉的是分组，不是它下面的内容：条目与子分组会移到它的父分组。</string>
-    <string name="groups_name_taken">这次修改没被接受：名称过长，或者保险库已经变了。请重新打开这个界面再试。</string>
+    <string name="groups_remove_hint">删掉的是分组，而非它的内容：条目与子分组会移到它的父分组。</string>
+    <string name="groups_name_taken">该修改未被接受：名称过长，或者保险库已发生变化。请重新打开这个界面后再试。</string>
     <string name="action_new_group">新建分组</string>
     <string name="groups_subgroup">新建子分组</string>
     <string name="groups_move_under">移动到分组</string>
     <string name="groups_depth_limit">分组最多嵌套 3 层；条目可以放在最深的一层里。</string>
     <string name="groups_drag_hint">长按一行，上下拖动可以改变条目和分组的位置；拖到分组上会放进该分组。</string>
-    <string name="groups_invalid_move">这个位置不允许：分组最多嵌套 3 层，也不能把分组放进它自己里面。</string>
+    <string name="groups_invalid_move">该位置不允许：分组最多嵌套 3 层，也不能把分组放进它自己里面。</string>
     <string name="action_more">更多</string>
     <string name="action_rename">重命名</string>
     <string name="action_remove">删除</string>
@@ -111,17 +111,17 @@
     <string name="action_apply">应用</string>
     <string name="import_open_title">打开导出文件</string>
     <string name="import_filter">导出文件</string>
-    <string name="import_unreadable">读不了这个文件。</string>
-    <string name="import_not_recognised">无法识别格式，它是哪一种？</string>
+    <string name="import_unreadable">无法读取该文件。</string>
+    <string name="import_not_recognised">无法识别格式，请手动选择。</string>
     <string name="import_choose_format">或者直接指定文件的格式：</string>
     <string name="import_password_title">这份导出已加密</string>
     <string name="import_password_hint">口令</string>
-    <string name="import_wrong_password">这个口令打不开该文件。</string>
-    <string name="import_no_entries">这个文件里没有条目。</string>
+    <string name="import_wrong_password">口令错误，无法解析该文件。</string>
+    <string name="import_no_entries">该文件内没有条目。</string>
     <string name="import_preview_title">导入会做什么</string>
     <string name="import_problems">无法使用的行：%1$d 行</string>
     <string name="import_dropped">未带入：%1$d 个图标、%2$d 个假设的周期、%3$d 条重复</string>
-    <string name="import_identical">保险库里已有，且完全一致</string>
+    <string name="import_identical">保险库内已有，且完全一致</string>
     <string name="import_replace_with">与 %1$s 用的是同一把密钥</string>
     <string name="decision_add">加入</string>
     <string name="decision_skip">跳过</string>
@@ -131,25 +131,25 @@
 
     <!-- 导出保险库（在设置里） -->
     <string name="export_title">导出保险库</string>
-    <string name="export_plaintext_warning">两个保险库文件能完整恢复账号，其中明文那一个之所以做得到，是因为主密钥就在文件里、没有加密。另外四种是给别的应用读的：只有加密 JSON 有保护，其余三种里的每个种子都是明文，请像保管保险库本身一样保管这些文件。</string>
+    <string name="export_plaintext_warning">两种保险库导出能完整恢复账户，其中未加密的方式不建议使用，可能导致泄露主密钥。另外四种可供其它应用使用：仅加密 JSON 有口令保护，其余三种都是明文存储，请严格保管这些文件。</string>
     <string name="export_needs_password">需要口令</string>
     <string name="export_keeps_tree">保留分组与层级</string>
     <string name="export_keeps_flat_groups">保留组名，不保留层级</string>
-    <string name="export_drops_groups">不带分组：条目会回到顶分组</string>
-    <string name="export_vault_explainer">本应用自己的备份：主密钥和加密后的保险库在同一个文件里。它能在新设备上恢复条目、分组树和图标，而拿到这个文件的人就拿到了这个账号。</string>
-    <string name="export_encrypted_vault_explainer">同样的备份，主密钥由下面的口令锁住。除非有理由不这样做，请用这一个。</string>
+    <string name="export_drops_groups">不保留分组</string>
+    <string name="export_vault_explainer">主密钥和加密后的保险库保存在同一个保险库文件里。它能在新设备上恢复条目、分组树和图标，拥有该文件的人就获取了该账户。</string>
+    <string name="export_encrypted_vault_explainer">同样的保险库文件，主密钥由口令加密。除非有理由不这样做，请选用这一个。</string>
     <string name="export_text_explainer">每行一个 otpauth:// 链接，不带名称、备注与分组。</string>
     <string name="export_json_explainer">整份保险库的 JSON，带平铺的组名与图标。</string>
-    <string name="export_encrypted_json_explainer">同样的 JSON，用下面的口令加密。四种里只有这一种真正有保护。</string>
-    <string name="export_html_explainer">一张表格，每个条目都画一张二维码；每张码里就是那条目的链接与种子。</string>
-    <string name="export_password_title">这份导出用口令保护</string>
+    <string name="export_encrypted_json_explainer">同样的 JSON，由口令加密。</string>
+    <string name="export_html_explainer">一张表格，每个条目都画一张二维码；二维码内存有条目的链接与种子。</string>
+    <string name="export_password_title">这份导出由口令保护</string>
     <string name="export_password_hint">口令</string>
-    <string name="export_password_required">这种格式需要口令：随便试一下就打得开的导出文件等于没有保护。</string>
+    <string name="export_password_required">选中的格式需要口令。</string>
     <string name="export_save_title">保存导出文件</string>
     <string name="export_filter">导出文件</string>
     <string name="export_saved">已保存到 %1$s</string>
-    <string name="export_failed">导出没能生成。</string>
-    <string name="export_save_failed">导出文件没能保存。</string>
+    <string name="export_failed">导出生成失败</string>
+    <string name="export_save_failed">导出文件保存失败。</string>
 
     <string name="format_vault">保险库</string>
     <string name="format_encrypted_vault">加密保险库</string>
@@ -162,9 +162,9 @@
     <string name="entry_type_yandex">Yandex OTP</string>
     <string name="entry_type_steam">Steam 令牌</string>
     <string name="field_pin">PIN</string>
-    <string name="hint_pin_required">必填：这种条目用 PIN 参与计算</string>
+    <string name="hint_pin_required">必填：这种条目需要 PIN 参与计算</string>
     <string name="hint_pin_kept">留空表示保留已设置的 PIN</string>
-<string name="entry_type_hotp">基于计数器（HOTP）</string>
+    <string name="entry_type_hotp">基于计数器（HOTP）</string>
     <string name="field_algorithm">算法</string>
     <string name="field_digits">位数</string>
     <string name="field_period">周期（秒）</string>
@@ -173,10 +173,10 @@
 
     <!-- 条目操作的结果 -->
     <string name="message_entry_imported">已导入条目。</string>
-    <string name="error_image_unreadable">没有读到图片（取消，或者文件无法解码）。</string>
-    <string name="error_image_has_no_entry">这张图片里没有可读的条目码（需要 otpauth:// 二维码）。</string>
-    <string name="error_entry_rejected">条目没有被接受：种子或参数不合法。</string>
-    <string name="error_entry_not_saved">没有保存：种子或参数不被接受（种子必须是合法 Base32）</string>
+    <string name="error_image_unreadable">未读取到图片（取消，或者文件不是有效的图片）。</string>
+    <string name="error_image_has_no_entry">传入的图片内没有可读的条目码（需要 otpauth:// 二维码）。</string>
+    <string name="error_entry_rejected">条目未被接受：种子或参数不合法。</string>
+    <string name="error_entry_not_saved">未保存：种子或参数不被接受（种子必须是合法 Base32）</string>
 
     <!-- 平台文件对话框 -->
     <string name="dialog_pick_image">选择含有二维码的图片</string>
@@ -186,10 +186,10 @@
     <string name="filter_recovery_files">恢复文件</string>
 
     <!-- 局域网：同步与配对在两台设备位于同一个 WiFi 时走的那条路 -->
-    <string name="lan_permission_refused">系统没有允许使用局域网，所以找不到这个 WiFi 上的设备。</string>
+    <string name="lan_permission_refused">系统未允许使用局域网，所以无法使用局域网寻找设备。</string>
 
     <!-- 同步 -->
-    <string name="sync_intro">同步用码在两个方向上各走一次：一台设备出示同步码，另一台读入并合并它带来的内容。全程不经过服务器，由二维码本身传递数据。</string>
+    <string name="sync_intro">同步需要在两端各执行一次：一台设备出示同步码，另一台读取并合并它携带的内容。全程不经过服务器，由二维码本身传递数据。</string>
     <string name="sync_heading">同步码</string>
     <string name="sync_generate">生成</string>
     <string name="sync_read_title">读取同步码</string>
@@ -199,110 +199,110 @@
     <string name="sync_copy_ciphertext">复制密文</string>
     <string name="sync_copy_text">复制文本</string>
     <string name="action_collapse">收起</string>
-    <string name="sync_error_no_device_identity">这台设备没有平台身份，无法同步。它当初是以「本机保险库」创建的，不能配对或同步。</string>
-    <string name="sync_my_code_explainer">把这个码交给另一台设备。交出去的是生成那一刻的状态。</string>
+    <string name="sync_error_no_device_identity">此设备无设备身份，无法同步。它当初是以「此设备保险库」创建的，不能配对或同步。</string>
+    <string name="sync_my_code_explainer">把该码交给另一台设备。码只会携带生成那一刻的状态。</string>
     <string name="action_generate_code">生成同步码</string>
-    <string name="sync_read_explainer">读入对方的同步码：贴在下面，或者打开它保存成的图片。</string>
+    <string name="sync_read_explainer">读取对方的同步码：粘贴在下面，或者打开它保存成的图片。</string>
     <string name="field_peer_code">对方的同步码</string>
     <string name="action_scan_code">扫描同步码</string>
     <string name="action_merge">合并</string>
     <string name="sync_error_no_code_in_image">这张图片里没有可读的同步码。</string>
-    <string name="sync_error_code_rejected">这个码没有被接受：它不是同步码，或者不属于这个账号。</string>
-    <string name="sync_error_already_applied">这个码已经合并过了。</string>
-    <string name="sync_error_sender_mismatch">这个码声称的来源没有得到通道确认，已拒绝。</string>
+    <string name="sync_error_code_rejected">该码没有被接受：它不是同步码，或者不属于该账户。</string>
+    <string name="sync_error_already_applied">该码已经合并过了。</string>
+    <string name="sync_error_sender_mismatch">该码声称的来源没有得到通道确认，已拒绝。</string>
     <string name="sync_error_nothing_to_read">没有可读的内容：先贴入或读入对方的同步码。</string>
-    <string name="sync_error_authentication_failed">这个码没有通过认证：它不是用这个账号的主密钥写出来的。</string>
-    <string name="sync_error_other">这个码没能合并。</string>
-    <string name="sync_error_not_saved">合并结果没能保存到本机。</string>
-    <string name="sync_result_nothing_new">没有新内容：这个码里的东西本机都有了。</string>
+    <string name="sync_error_authentication_failed">该码没有通过认证：它不是由该账户生成的。</string>
+    <string name="sync_error_other">该码没能合并。</string>
+    <string name="sync_error_not_saved">合并结果没能保存到此设备。</string>
+    <string name="sync_result_nothing_new">此设备已有该码的全部内容。</string>
     <string name="sync_result_summary">新增 %1$d，墓碑 %2$d，应用删除 %3$d，无变化 %4$d。</string>
     <string name="sync_result_needs_decision">其中 %1$d 条两边不一致，请在下面裁决。</string>
     <string name="sync_conflict_ordering">两台设备对 %1$s 的排列不一致</string>
     <string name="sync_conflict_ordering_top">顶分组</string>
     <string name="sync_conflict_group">分组 %1$s</string>
     <string name="sync_conflict_ordering_hint">分组的内容排布两台设备都会显示，因此必须在两个排布里选一个。移动一个分组可能同时改动两个分组，所以同一件事可能出现两条冲突。</string>
-    <string name="sync_conflict_ordering_renamed">改名了：本机叫 %1$s，对方叫 %2$s</string>
-    <string name="sync_conflict_ordering_local">本机</string>
+    <string name="sync_conflict_ordering_renamed">改名了：此设备叫 %1$s，对方叫 %2$s</string>
+    <string name="sync_conflict_ordering_local">此设备</string>
     <string name="sync_conflict_ordering_incoming">对方</string>
     <string name="sync_conflict_ordering_empty">没有条目</string>
-    <string name="action_use_local_order">用本机顺序</string>
+    <string name="action_use_local_order">用此设备顺序</string>
     <string name="action_use_incoming_order">用对方顺序</string>
     <string name="sync_conflict_heading">需要裁决</string>
     <string name="sync_conflict_entry_mismatch">两台设备都改过这条条目。</string>
-    <string name="sync_conflict_peer_deleted">对方删除了这条条目；本机还留着它。</string>
-    <string name="sync_conflict_local_deleted">本机删除了这条条目；对方还留着它。</string>
-    <string name="sync_conflict_side_local">本机</string>
+    <string name="sync_conflict_peer_deleted">对方删除了这条条目；此设备还留着它。</string>
+    <string name="sync_conflict_local_deleted">此设备删除了这条条目；对方还留着它。</string>
+    <string name="sync_conflict_side_local">此设备</string>
     <string name="sync_conflict_side_incoming">对方</string>
     <string name="sync_conflict_side_deleted">已删除</string>
-    <string name="sync_conflict_local_is_newer">本机这一版更晚。</string>
-    <string name="action_keep_local">保留本机版本</string>
+    <string name="sync_conflict_local_is_newer">此设备这一版更晚。</string>
+    <string name="action_keep_local">保留此设备版本</string>
     <string name="action_take_incoming">采用对方版本</string>
     <string name="action_keep_entry">保留条目</string>
     <string name="action_accept_deletion">接受删除</string>
     <string name="action_keep_deleted">保持删除</string>
     <string name="action_restore_entry">恢复条目</string>
-    <string name="sync_error_decision_refused">裁决没能生效，什么都没改动。</string>
+    <string name="sync_error_decision_refused">裁决未生效，无改动。</string>
 
     <!-- 在局域网里同步（同步界面的一段） -->
     <string name="sync_lan_section">同一 WiFi 局域网</string>
-    <string name="sync_lan_explainer">两台设备要在同一个网络里，而且都停在这个界面上：后台不做任何查找，本机也只在这一段打开期间对外公告自己。</string>
+    <string name="sync_lan_explainer">两台设备要在同一个网络里，而且都停在此界面上：后台不做任何查找，此设备也只在这一段打开期间对外公告自己。</string>
     <string name="action_find_on_lan">在局域网里查找设备</string>
-    <string name="sync_lan_unavailable">打不开局域网通道：可能没有空闲的 UDP 端口，或者被系统拒绝了。</string>
-    <string name="sync_lan_looking">正在查找在这个网络里公告自己的设备……</string>
-    <string name="sync_lan_no_peers">还没有设备应答：对方也要在同一个 WiFi 上，并且也在它那边打开这一段。</string>
+    <string name="sync_lan_unavailable">无法打开局域网通道：可能没有空闲的 UDP 端口，或者被系统拒绝了。</string>
+    <string name="sync_lan_looking">正在查找在该网络里公告自己的设备……</string>
+    <string name="sync_lan_no_peers">还没有设备应答。对方也需要在同一个 WiFi 上，且也在他那边发起查找。</string>
     <string name="sync_lan_peer_left">已离开网络</string>
-    <string name="sync_lan_peer_unreachable">没有看到它的地址，无法拨号</string>
+    <string name="sync_lan_peer_unreachable">未得到它的地址，无法拨号</string>
     <string name="sync_lan_selected">已选中：%1$s</string>
-    <string name="action_lan_send_state">把我的状态发给它</string>
-    <string name="action_lan_receive_state">接收对方的状态</string>
-    <string name="sync_lan_sent">已把本机状态发给 %1$s；对方要在自己的界面上接收。</string>
-    <string name="sync_lan_send_failed">状态没能发到那台设备。</string>
-    <string name="sync_lan_nothing_received">对方什么都没有发来。它需要在自己的界面上发送状态，而且两台设备要在同一个 WiFi 上。</string>
-    <string name="sync_lan_waiting">正在等对方的状态，最多 %1$d 秒……</string>
+    <string name="action_lan_send_state">发送本地状态</string>
+    <string name="action_lan_receive_state">接收对方状态</string>
+    <string name="sync_lan_sent">已将此设备状态发给 %1$s；对方要在自己的界面上接收。</string>
+    <string name="sync_lan_send_failed">状态未成功发送。</string>
+    <string name="sync_lan_nothing_received">未收到任何状态。对方需要在自己的界面上发送状态，且两台设备要在同一个 WiFi 上。</string>
+    <string name="sync_lan_waiting">正在等待对方的状态，最多 %1$d 秒……</string>
     <string name="sync_lan_cancel_wait">取消等待</string>
     <string name="action_stop_lan">停止查找</string>
 
     <!-- 配对新设备（在同步界面里） -->
     <string name="sync_pair_section">配对</string>
-    <string name="sync_pair_explainer">对方读过配对码之后会给你一段请求；只有在你确认之后，主密钥才会离开这台设备。</string>
+    <string name="sync_pair_explainer">对方读取配对码后会返回一段请求；只有在你确认之后，主密钥才会离开此设备。</string>
     <string name="action_pair_new_device">配对新设备</string>
-    <string name="pair_error_no_key_store">无法开始配对：本机没有可用的平台密钥库。</string>
-    <string name="pair_intro">把下面这段配对码交给新设备（只在这一步有效）。它读完之后会给你一段请求。</string>
+    <string name="pair_error_no_key_store">无法开始配对：此设备没有可用的平台密钥库。</string>
+    <string name="pair_intro">将下面这段配对码交给新设备（只在此步骤有效）。它读取之后会返回一段请求。</string>
     <string name="pair_code_title">配对码</string>
     <string name="action_copy_pairing_code">复制配对码</string>
     <string name="field_joiner_request">新设备的请求</string>
     <string name="action_scan_request">扫描请求</string>
     <string name="error_image_has_no_request">这张图片里没有可读的请求。</string>
     <string name="message_request_read">已从图片读入请求。</string>
-    <string name="pair_error_request_rejected">这段请求不被接受：它可能不是这次配对的请求。</string>
-    <string name="action_authorize_device">授权这台设备（把主密钥交给本次会话）</string>
-    <string name="pair_authorized_with_requester">请求方身份：%1$s。把下面这段应答交给它即可完成；在交出去之前，什么都还没有给它。</string>
-    <string name="pair_authorized">已授权。把下面这段应答交给新设备即可完成。</string>
+    <string name="pair_error_request_rejected">该请求不被接受：它可能不是本次配对的请求。</string>
+    <string name="action_authorize_device">授权此设备（把主密钥交给本次会话）</string>
+    <string name="pair_authorized_with_requester">请求方身份：%1$s。将下面这段应答交给它即可完成；交出去之前请求方未收到任何用户数据。</string>
+    <string name="pair_authorized">已授权。将下面这段应答交给新设备即可完成。</string>
     <string name="action_copy_reply">复制应答</string>
 
     <!-- 在局域网里配对（已经持有账号的那一侧） -->
     <string name="pair_lan_section">同一 WiFi 局域网</string>
     <string name="pair_lan_enable">使用局域网（同一 WiFi）</string>
-    <string name="pair_lan_explainer">打开局域网后，下面的码里还会带上本机在网络上的位置：同一 WiFi 上的新设备会把请求直接发过来，不需要你手动搬运。</string>
-    <string name="pair_lan_listening">正在这个网络里等请求，最多两分钟；上面的码不受影响，怎样都能用。</string>
-    <string name="pair_lan_window_over">两分钟内网络上没有请求，本机已停止监听；上面的码仍然可以手动配对。</string>
-    <string name="pair_lan_unavailable">本机打不开局域网通道。</string>
-    <string name="pair_lan_no_identity">本机没有平台身份，无法在网络里被找到。</string>
+    <string name="pair_lan_explainer">打开局域网后，下面的二维码中还会携带此设备在网络上的位置：同一 WiFi 上的新设备会把请求直接发过来，无需你手动搬运。</string>
+    <string name="pair_lan_listening">正在该网络上等待请求，最多两分钟；上面的二维码不受影响，随时可用。</string>
+    <string name="pair_lan_window_over">两分钟内网络上没有请求，此设备已停止监听；上面的二维码仍然可以手动配对。</string>
+    <string name="pair_lan_unavailable">此设备打不开局域网通道。</string>
+    <string name="pair_lan_no_identity">此设备没有平台身份，无法在网络里被找到。</string>
     <string name="pair_lan_request_from">请求来自局域网（设备 %1$s）。</string>
     <string name="pair_lan_reply_sent">应答已通过局域网发回。</string>
-    <string name="pair_lan_send_failed">应答没能通过局域网发回；仍可用下面的码手动带回。</string>
-    <string name="pair_lan_code_changed">网络设置改变后配对码也变了，新设备需要重新读取。</string>
+    <string name="pair_lan_send_failed">应答未通过局域网发回；仍可用下面的码手动带回。</string>
+    <string name="pair_lan_code_changed">网络设置改变后配对码也已改变，新设备需要重新读取。</string>
 
     <!-- 在新设备上登录 -->
-    <string name="join_intro">在一台已经解锁的设备上选择「配对新设备」，把那里显示的配对码贴到下面。</string>
+    <string name="join_intro">在一台已经解锁的设备上选择「配对新设备」，将显示的配对码贴到下面。</string>
     <string name="field_pairing_code">配对码（来自已解锁的设备）</string>
     <string name="action_scan_pairing_code">扫描配对码</string>
     <string name="error_image_has_no_pairing_code">这张图片里没有可读的配对码。</string>
     <string name="message_pairing_code_read">已从图片读入配对码。</string>
-    <string name="join_error_bad_code">这不是一个可用的配对码，或者本机没有可用的平台密钥库。</string>
+    <string name="join_error_bad_code">这不是一个可用的配对码，或者此设备没有可用的平台密钥库。</string>
     <string name="action_generate_request">生成请求</string>
     <string name="join_error_request_failed">无法生成请求：平台密钥库拒绝了这次操作。</string>
-    <string name="join_hand_back_request">把下面这段交回给那台设备：</string>
+    <string name="join_hand_back_request">将下面这段交回给那台设备：</string>
     <string name="action_copy_request">复制请求</string>
     <string name="field_reply">应答（来自那台设备）</string>
     <string name="action_scan_reply">扫描应答</string>
@@ -314,14 +314,14 @@
 
     <!-- 在局域网里登录（还没有账号的那一侧） -->
     <string name="join_lan_section">同一 WiFi 局域网</string>
-    <string name="join_lan_explainer">你读到的码里有对方在网络上的位置，本机可以把请求直接发过去并等它的应答，不需要手动搬运。</string>
+    <string name="join_lan_explainer">读取的码中有对方在网络上的位置，此设备可以把请求直接发过去并等待它的应答，无需手动搬运。</string>
     <string name="action_lan_request">通过局域网发送请求</string>
-    <string name="join_lan_looking">正在这个网络里找那台设备……</string>
-    <string name="join_lan_unavailable">本机打不开局域网通道。</string>
-    <string name="join_lan_no_device">同一网络里没找到这台设备：两台设备要在同一个 WiFi 上，并且对方正停在配对界面上；下面的文本方式始终可用。</string>
-    <string name="join_lan_waiting">正在等对方确认，最多 %1$d 秒……</string>
+    <string name="join_lan_looking">正在该网络中寻找那台设备……</string>
+    <string name="join_lan_unavailable">此设备打不开局域网通道。</string>
+    <string name="join_lan_no_device">同一网络里未找到此设备：两台设备要在同一个 WiFi 上，并且对方正停在配对界面上；下面的文本方式始终可用。</string>
+    <string name="join_lan_waiting">正在等待对方确认，最多 %1$d 秒……</string>
     <string name="join_lan_timed_out">对方没有在网络上应答。把下面的请求交给它，再把应答贴回来。</string>
-    <string name="join_lan_failed">请求没能通过局域网发出去。</string>
+    <string name="join_lan_failed">请求未能通过局域网发出去。</string>
 
     <!-- 设置 -->
     <string name="settings_language">语言</string>
@@ -331,37 +331,37 @@
     <string name="theme_light">浅色</string>
     <string name="theme_dark">深色</string>
     <string name="settings_key_store">主密钥</string>
-    <string name="settings_master_key_software">在平台密钥库中，受软件保护：只有你的操作系统账户在保护它</string>
+    <string name="settings_master_key_software">在平台密钥库中，受软件保护：仅由操作系统账户保护</string>
     <string name="settings_device_identity">设备身份</string>
-    <string name="settings_no_device_identity">没有：这个保险库不能配对或同步</string>
+    <string name="settings_no_device_identity">无：该保险库不能配对或同步</string>
     <string name="settings_hardware_backed">硬件保护</string>
     <string name="settings_software_backed">非硬件保护</string>
     <string name="settings_core_version">核心库</string>
     <string name="settings_lock_now">立即锁定</string>
     <string name="settings_import_export">导入与导出</string>
-    <string name="settings_import_export_explainer">导入只需打开一个文件：保险库备份会把整个账号恢复到本机，别的应用的导出则先预览、再写入。导出先给出两个保险库备份，然后是别的应用能读的格式。请离线保管备份：拿到明文那一个的人就拿到了这个账号。</string>
+    <string name="settings_import_export_explainer">导入只需打开一个文件：保险库文件会把整个账号恢复到此设备，其它应用的导出文件则先预览、再写入。导出可选择使用本应用的完整格式，或其它应用能读的残缺格式。请严格保管备份：拥有明文文件的人就获得了该账户。</string>
     <string name="action_restore">找回</string>
     <string name="field_passphrase">口令</string>
-    <string name="field_passphrase_again">再输一次口令</string>
+    <string name="field_passphrase_again">再次输入口令</string>
     <string name="error_passphrase_mismatch">两次输入的口令不一致。</string>
     <string name="error_recovery_rejected">没有被接受：文件损坏、口令不对，或者这不是一个保险库文件。</string>
-    <string name="error_recovery_key_only">这是较早的恢复密钥：只有主密钥，没有条目。本机的保险库也没有用它打开，因此什么都没改动。请用保险库备份来找回条目。</string>
-    <string name="error_recovery_bare_vault">这是一份原始保险库文件：里面是加密后的条目，但不含主密钥，导入它只会把本机的保险库换成一份打不开的数据。请在能打开它的设备上导出「保险库」或「加密保险库」，再导入那个文件。</string>
-    <string name="error_recovery_vault_failed">主密钥已经解出，但文件里的保险库打不开。文件可能损坏，或者属于另一个账号；本机的密钥没有被改动。</string>
+    <string name="error_recovery_key_only">这是早期的恢复密钥：只有主密钥，没有条目。此设备的保险库也未使用它打开，因此无改动。请使用保险库备份来找回条目。</string>
+    <string name="error_recovery_bare_vault">这是一份原始保险库文件：里面是加密后的条目，但不含主密钥，导入它只会将此设备的保险库换成一份无法打开的数据。请在能打开它的设备上导出「保险库」或「加密保险库」，再导入对应文件。</string>
+    <string name="error_recovery_vault_failed">主密钥已经解出，但文件里的保险库打不开。文件可能损坏，或者属于另一个账户；此设备的密钥未被改动。</string>
     <string name="dialog_import_recovery_title">用这个文件恢复？</string>
-    <string name="dialog_import_plain_vault_hint">这份文件里的主密钥是明文。拿到它的人就能打开这个账号，请离线保管，账号恢复之后删掉它。</string>
-    <string name="dialog_import_recovery_text">保险库备份会把本机的保险库替换成它携带的那个账号，只存在于本机的条目不会被合并。较早的、只有密钥的文件只能重新打开本机已有的保险库。</string>
+    <string name="dialog_import_plain_vault_hint">这份文件里的主密钥是明文。拿到它的人就能打开该账户，请离线保管，账号恢复之后删掉它。</string>
+    <string name="dialog_import_recovery_text">保险库备份会把此设备的保险库替换成它携带的那个账号，只存在于此设备的条目不会被合并。较早的、只有密钥的文件只能重新打开此设备已有的保险库。</string>
     <string name="settings_about">关于</string>
     <string name="settings_license">应用本体为 Apache-2.0；它所依赖的 Rust 各层为 LGPL-3.0-or-later。</string>
 
-    <!-- 重置：本机已经用不了的保险库的出路 -->
+    <!-- 重置：此设备已经用不了的保险库的出路 -->
     <string name="settings_reset">重置</string>
-    <string name="settings_reset_explainer">删除本机的保险库与主密钥，之后可以重新注册，也可以从另一台设备登录。没有导出、也没有同步过的条目会丢失。平台密钥库里的设备身份保留：这里修的是账号，不是身份。</string>
+    <string name="settings_reset_explainer">删除此设备的保险库与主密钥，之后可以重新创建，也可以与其它设备配对。未导出且未与其它设备同步过的条目会丢失。平台密钥库里的设备身份保留：重置的是账户，不是身份。</string>
     <string name="action_reset_master_key">重置主密钥…</string>
     <string name="dialog_reset_title">重置主密钥？</string>
-    <string name="dialog_reset_text">本机的保险库文件与主密钥都会被删除。如果没有别的设备持有这个账号，也没有导出过恢复文件，其中的条目就找不回来了。</string>
+    <string name="dialog_reset_text">此设备的保险库文件与主密钥都会被删除。如果没有其它设备持有该账户，也没有导出过保险库，其中的条目就彻底丢失了。</string>
     <string name="action_reset">重置</string>
-    <string name="message_master_key_reset">主密钥与保险库已删除，本机回到初次运行的状态。</string>
+    <string name="message_master_key_reset">主密钥与保险库已删除，此设备回到初次运行的状态。</string>
 
     <!-- 隐私输入框：种子、PIN 与口令 -->
     <string name="cd_show_secret">显示内容</string>
@@ -371,12 +371,12 @@
     <string name="scan_title">扫描二维码</string>
     <string name="scan_hint">把二维码放进取景框，或者从图片里读取。</string>
     <string name="cd_pick_image">从图片读取二维码</string>
-    <string name="error_camera_refused">没有拿到相机权限，只能从图片里读取。</string>
-    <string name="error_camera_failed">相机没能启动，只能从图片里读取。</string>
+    <string name="error_camera_refused">没有获取到相机权限，只能从图片里读取。</string>
+    <string name="error_camera_failed">相机启动失败，只能从图片里读取。</string>
 
     <!-- Deleting one entry, and replacing a secret -->
     <string name="dialog_delete_entry_title">删除「%1$s」？</string>
-    <string name="dialog_delete_entry_text">删除会同步到这个账号的所有设备：那边这个条目也会消失，它产生过的验证码找不回来。</string>
+    <string name="dialog_delete_entry_text">下次与其它设备同步时会同步该删除：那边这个条目也会消失，它产生过的验证码无法找回。</string>
     <string name="field_secret_replace">新种子</string>
     <string name="hint_secret_kept">留空则不改动</string>
 
@@ -389,37 +389,40 @@
     <string name="scan_frame_taken">第 %1$d/%2$d 帧</string>
     <string name="sync_frames_count">%1$d/%2$d</string>
     <!-- 应用锁 -->
-    <string name="login_password_explainer">保险库已锁定。请输入在这台设备上设置的解锁密码。它不是恢复文件的口令。</string>
+    <string name="login_password_explainer">保险库已锁定。请输入在此设备上设置的解锁密码。它不是恢复文件的口令。</string>
     <string name="field_unlock_password">解锁密码</string>
-    <string name="error_unlock_password_rejected">密码不正确，保险库没有打开。</string>
-    <string name="error_lock_unreadable">这台设备有锁，但没有可用的解锁材料。请从备份导入保险库，或重置本机。</string>
-    <string name="error_lock_pending">发现未完成的锁操作。请用解锁密码打开设备以完成它，或重置本机。</string>
+    <string name="field_unlock_password_again">再次输入解锁密码</string>
+    <string name="error_unlock_password_rejected">密码不正确。</string>
+    <string name="error_lock_unreadable">此设备有锁，但没有可用的解锁材料。请从备份导入保险库，或重置此设备。</string>
+    <string name="error_lock_pending">发现未完成的锁操作。请用解锁密码打开设备以完成它，或重置此设备。</string>
     <string name="dialog_set_password_title">设置解锁密码</string>
     <string name="action_set_password">设置密码</string>
     <string name="hint_unlock_password_minimum">建议至少 8 个字符。这个密码无法找回；恢复文件是唯一的退路。</string>
-    <string name="error_password_wrap_failed">解锁密码没有设置成功，本机没有改动。</string>
-    <string name="error_vault_does_not_match_password">密码打开了锁，但保险库文件不属于这个账号。</string>
-    <string name="set_password_explainer">这台设备还没有解锁密码。现在设置一个：每次保险库锁定时都需要它，没有恢复文件时它也是唯一的退路。</string>
-    <string name="error_set_password_required">这台设备必须先设置解锁密码才能使用保险库。请设置密码、从备份导入保险库，或重置本机。</string>
+    <string name="error_password_wrap_failed">解锁密码没有设置成功，此设备没有改动。</string>
+    <string name="error_vault_does_not_match_password">密码打开了锁，但保险库文件不属于该账户。</string>
+    <string name="set_password_explainer">此设备还没有解锁密码。现在设置一个：每次保险库锁定时都需要它，没有恢复文件时它也是唯一的退路。</string>
+    <string name="set_password_after_import_explainer">导入的保险库已就绪。请为这台设备设置新的解锁密码；旧密码随旧保险库一起作废。</string>
+    <string name="error_set_password_required">此设备必须先设置解锁密码才能使用保险库。请设置密码、从备份导入保险库，或重置此设备。</string>
     <string name="settings_unlock_password">解锁密码</string>
-    <string name="settings_unlock_password_explainer">修改后会在这台设备上重新包裹主密钥。旧密码立即失效；恢复文件和其他设备不受影响。</string>
+    <string name="settings_unlock_password_explainer">修改后会在此设备上重新包裹主密钥。旧密码立即失效；恢复文件和其他设备不受影响。</string>
     <string name="action_change_password">修改密码</string>
     <string name="dialog_change_password_title">修改解锁密码</string>
     <string name="field_current_password">当前密码</string>
     <string name="field_new_password">新密码</string>
+    <string name="field_new_password_again">再次输入新密码</string>
     <string name="message_password_changed">解锁密码已修改。</string>
     <string name="error_old_password_rejected">当前密码不正确。</string>
-    <string name="settings_import_requires_lock">锁启用时直接导入保险库会让旧解锁密码绑到新密钥上。请先锁定本机，再在登录界面使用「导入保险库」。</string>
+    <string name="settings_import_needs_new_password">导入保险库会替换整个账户，之后需要为这台设备重新设置解锁密码。</string>
     <string name="action_unlock_biometric">使用 Windows Hello / 指纹解锁</string>
     <string name="settings_biometric">生物识别解锁</string>
-    <string name="settings_biometric_explainer">主密钥的第二个包裹，由 Windows Hello 或 Android 生物识别提示解锁。平台凭据被移除时，密码仍是回来的路。</string>
+    <string name="settings_biometric_explainer">主密钥的第二个包裹，由 Windows Hello 或 Android 生物识别提示解锁。平台凭据被移除时，密码仍可作为候补。</string>
     <string name="settings_biometric_unavailable">这台机器无法提供平台认证路径。</string>
     <string name="action_enable_biometric">启用生物识别解锁</string>
     <string name="action_disable_biometric">关闭生物识别解锁</string>
     <string name="message_biometric_enabled">生物识别解锁已启用。</string>
     <string name="message_biometric_disabled">生物识别解锁已关闭，平台凭据已删除。</string>
     <string name="error_biometric_failed">平台认证没有完成，没有做任何改动。</string>
-    <string name="error_biometric_blob_unreadable">这台设备上的生物识别解锁数据读不出来，请用密码。</string>
+    <string name="error_biometric_blob_unreadable">此设备上的生物识别解锁数据读不出来，请用密码。</string>
     <string name="biometric_prompt_title">解锁 Qualia2FA</string>
     <string name="biometric_prompt_subtitle">确认是你本人</string>
     <string name="biometric_prompt_cancel">取消</string>

@@ -96,6 +96,16 @@ private const val ANY_TYPE = "*/*"
 /** The longest edge an image is decoded at, in pixels. */
 private const val MAX_IMAGE_EDGE = 2048
 
+/**
+ * The largest file this picker reads into memory.
+ *
+ * The core refuses a vault payload above 64 MiB and another application's export above
+ * 8 MiB, so this bound lets every file the library would accept through, and stops a picked
+ * file from being read until the process runs out of memory. On a phone the bytes are the
+ * whole file, so the limit has to be here as well as in the library.
+ */
+private const val MAX_FILE_BYTES = 64 * 1024 * 1024 + 64 * 1024
+
 private class AndroidFilePicker(
     private val pickImage: () -> Unit,
     private val pickDocument: () -> Unit,
@@ -136,10 +146,22 @@ private class AndroidFilePicker(
     }
 }
 
-/** Reads the whole document at [uri], or `null` when it cannot be opened or read. */
+/** Reads the whole document at [uri], or `null` when it cannot be opened, read or is too large. */
 private fun read(context: Context, uri: Uri): ByteArray? =
     try {
-        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > MAX_FILE_BYTES) return null
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
     } catch (_: Exception) {
         null
     }

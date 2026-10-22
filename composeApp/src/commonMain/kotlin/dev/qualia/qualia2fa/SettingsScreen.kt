@@ -22,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,13 +43,9 @@ import dev.qualia.qualia2fa.resources.dialog_import_recovery_title
 import dev.qualia.qualia2fa.resources.dialog_reset_text
 import dev.qualia.qualia2fa.resources.dialog_reset_title
 import dev.qualia.qualia2fa.resources.error_passphrase_mismatch
-import dev.qualia.qualia2fa.resources.error_recovery_bare_vault
-import dev.qualia.qualia2fa.resources.error_recovery_key_only
-import dev.qualia.qualia2fa.resources.error_recovery_rejected
-import dev.qualia.qualia2fa.resources.error_recovery_vault_failed
 import dev.qualia.qualia2fa.resources.field_current_password
 import dev.qualia.qualia2fa.resources.field_new_password
-import dev.qualia.qualia2fa.resources.filter_portable_files
+import dev.qualia.qualia2fa.resources.field_new_password_again
 import dev.qualia.qualia2fa.resources.hint_unlock_password_minimum
 import dev.qualia.qualia2fa.resources.nav_settings
 import dev.qualia.qualia2fa.resources.qualia2fa_logo
@@ -69,15 +64,12 @@ import dev.qualia.qualia2fa.resources.settings_master_key_software
 import dev.qualia.qualia2fa.resources.settings_no_device_identity
 import dev.qualia.qualia2fa.resources.settings_import_export
 import dev.qualia.qualia2fa.resources.settings_import_export_explainer
-import dev.qualia.qualia2fa.resources.settings_import_requires_lock
+import dev.qualia.qualia2fa.resources.settings_import_needs_new_password
 import dev.qualia.qualia2fa.resources.settings_reset
 import dev.qualia.qualia2fa.resources.settings_reset_explainer
 import dev.qualia.qualia2fa.resources.settings_software_backed
 import dev.qualia.qualia2fa.resources.settings_unlock_password
 import dev.qualia.qualia2fa.resources.settings_unlock_password_explainer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -128,11 +120,6 @@ fun SettingsScreen(
     protection: MasterKeyProtection,
     identity: DeviceIdentity?,
     /**
-     * Where an imported master key is written, or `null` on a machine with no platform key
-     * store — which is also a machine that cannot have reached this screen with a vault open.
-     */
-    masterKeyStore: MasterKeyStore?,
-    /**
      * Whether the application lock is enabled.
      *
      * On a locked device the master key lives in `master.key.pw`, so the change-password
@@ -150,6 +137,14 @@ fun SettingsScreen(
     onEnableBiometric: (onResult: (String?, Boolean) -> Unit) -> Unit,
     onDisableBiometric: (onResult: (String?, Boolean) -> Unit) -> Unit,
     onChangePassword: (oldPassword: String, newPassword: String, onResult: (String?) -> Unit) -> Unit,
+    /**
+     * Opens a `.q2fa` backup chosen here, and hands back the text to show when it is refused.
+     *
+     * The window owns this because the restored master key has to become a new lock through
+     * the password screen: importing replaces the key, and the old wrap would otherwise name a
+     * key that no longer opens anything.
+     */
+    onRestorePortable: (file: ByteArray, passphrase: String, onResult: (String?) -> Unit) -> Unit,
     onImported: (Vault) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -163,42 +158,14 @@ fun SettingsScreen(
     var importing by remember { mutableStateOf(false) }
     var exportingVault by remember { mutableStateOf(false) }
     var restoreStep by remember { mutableStateOf<RestoreStep?>(null) }
-    val scope = rememberCoroutineScope()
 
     val importLabel = stringResource(Res.string.action_import_vault)
     val exportLabel = stringResource(Res.string.action_export_vault)
-    val rejected = stringResource(Res.string.error_recovery_rejected)
-    val keyOnly = stringResource(Res.string.error_recovery_key_only)
-    val bareVault = stringResource(Res.string.error_recovery_bare_vault)
-    val vaultFailed = stringResource(Res.string.error_recovery_vault_failed)
 
     /** Restores [file] into this device, replacing the vault it carries. */
     fun restore(file: ByteArray, passphrase: String) {
-        val target = masterKeyStore
-        if (target == null) {
-            message = rejected
-            return
-        }
-        val current = vault.serialize()
-        scope.launch {
-            // The passphrase derivation is deliberately expensive; keep the screen responsive
-            // while it runs.
-            val outcome =
-                withContext(Dispatchers.Default) {
-                    restorePortableFile(file, passphrase, target, current)
-                }
-            when (outcome) {
-                is PortableRestore.Recovered -> {
-                    message = null
-                    onImported(outcome.vault)
-                }
-
-                PortableRestore.KeyOnly -> message = keyOnly
-                PortableRestore.BareVault -> message = bareVault
-                PortableRestore.VaultFailed -> message = vaultFailed
-                PortableRestore.Rejected -> message = rejected
-            }
-        }
+        message = null
+        onRestorePortable(file, passphrase) { result -> if (result != null) message = result }
     }
 
     Column(
@@ -298,15 +265,9 @@ fun SettingsScreen(
 
         SectionCard(title = stringResource(Res.string.settings_import_export)) {
             Hint(stringResource(Res.string.settings_import_export_explainer))
-            if (lockEnabled) {
-                // Importing would replace the vault's master key while the existing wrap
-                // still names the old one. The login screen's import path sets a new
-                // password for the imported key, so the user is sent there after locking.
-                Hint(stringResource(Res.string.settings_import_requires_lock))
-            } else {
-                OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(importLabel)
-                }
+            Hint(stringResource(Res.string.settings_import_needs_new_password))
+            OutlinedButton(onClick = { importing = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(importLabel)
             }
             OutlinedButton(onClick = { exportingVault = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(exportLabel)
@@ -494,7 +455,10 @@ private fun ChangePasswordDialog(
         properties = DialogDefaults,
         title = { Text(stringResource(Res.string.dialog_change_password_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
+            Column(
+                modifier = Modifier.clearFocusOnTap(),
+                verticalArrangement = Arrangement.spacedBy(Space.s),
+            ) {
                 SecretField(
                     value = current,
                     onValueChange = { current = it },
@@ -516,7 +480,7 @@ private fun ChangePasswordDialog(
                         repeated = it
                         mismatch = false
                     },
-                    label = stringResource(Res.string.field_new_password),
+                    label = stringResource(Res.string.field_new_password_again),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Hint(stringResource(Res.string.hint_unlock_password_minimum))

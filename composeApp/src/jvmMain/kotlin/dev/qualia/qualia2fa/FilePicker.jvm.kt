@@ -29,7 +29,15 @@ private class DesktopFilePicker : FilePicker {
             JFileChooser().apply {
                 this.dialogTitle = dialogTitle
                 fileFilter =
-                    FileNameExtensionFilter(imageFilesLabel, "png", "jpg", "jpeg", "webp", "bmp", "gif")
+                    FileNameExtensionFilter(
+                        filterDescription(imageFilesLabel, "png", "jpg", "jpeg", "webp", "bmp", "gif"),
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "webp",
+                        "bmp",
+                        "gif",
+                    )
             }
         if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return onResult(null)
 
@@ -48,7 +56,7 @@ private class DesktopFilePicker : FilePicker {
         val chooser =
             JFileChooser().apply {
                 this.dialogTitle = dialogTitle
-                fileFilter = FileNameExtensionFilter(filterLabel, extension)
+                fileFilter = FileNameExtensionFilter(filterDescription(filterLabel, extension), extension)
                 selectedFile = File(suggestedName)
             }
         if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return onResult(null)
@@ -83,7 +91,7 @@ private class DesktopFilePicker : FilePicker {
                 // keeps every file selectable, which is what an import screen needs before the
                 // content has been looked at.
                 if (extension != null) {
-                    fileFilter = FileNameExtensionFilter(filterLabel, extension)
+                    fileFilter = FileNameExtensionFilter(filterDescription(filterLabel, extension), extension)
                 }
             }
         if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return onResult(null)
@@ -97,6 +105,16 @@ private class DesktopFilePicker : FilePicker {
             },
         )
     }
+
+    /**
+     * The file-type name the dialog shows, with the suffixes it matches.
+     *
+     * A bare label ("Vault files") leaves the user guessing which file the dialog will show;
+     * the platform's own dialogs write the pattern next to the name, and this is the same
+     * information for a Swing chooser.
+     */
+    private fun filterDescription(label: String, vararg extensions: String): String =
+        "$label (${extensions.joinToString(", ") { "*.$it" }})"
 
     /**
      * Reads an image file and converts it to grayscale.

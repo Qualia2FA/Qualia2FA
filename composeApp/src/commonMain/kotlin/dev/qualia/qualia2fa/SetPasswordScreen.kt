@@ -27,6 +27,7 @@ import dev.qualia.qualia2fa.resources.action_set_password
 import dev.qualia.qualia2fa.resources.dialog_set_password_title
 import dev.qualia.qualia2fa.resources.error_passphrase_mismatch
 import dev.qualia.qualia2fa.resources.field_unlock_password
+import dev.qualia.qualia2fa.resources.field_unlock_password_again
 import dev.qualia.qualia2fa.resources.hint_unlock_password_minimum
 import dev.qualia.qualia2fa.resources.set_password_explainer
 import org.jetbrains.compose.resources.stringResource
@@ -46,6 +47,14 @@ fun SetPasswordScreen(
     message: String?,
     onConfirm: (String) -> Unit,
     onCancel: () -> Unit,
+    /**
+     * What this password is being set for, when the default sentence is not true.
+     *
+     * A vault just imported from a backup is not "a device that has no password yet": the
+     * password it replaces belongs to the vault that was just replaced, and the user has to
+     * be told that the old one no longer applies.
+     */
+    explainer: String? = null,
 ) {
     var password by remember { mutableStateOf("") }
     var repeated by remember { mutableStateOf("") }
@@ -68,7 +77,7 @@ fun SetPasswordScreen(
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                stringResource(Res.string.set_password_explainer),
+                explainer ?: stringResource(Res.string.set_password_explainer),
                 style = MaterialTheme.typography.bodyMedium,
             )
             SecretField(
@@ -86,7 +95,7 @@ fun SetPasswordScreen(
                     repeated = it
                     mismatch = false
                 },
-                label = stringResource(Res.string.field_unlock_password),
+                label = stringResource(Res.string.field_unlock_password_again),
                 modifier = Modifier.fillMaxWidth(),
             )
             if (mismatch) MessageLine(mismatchText)

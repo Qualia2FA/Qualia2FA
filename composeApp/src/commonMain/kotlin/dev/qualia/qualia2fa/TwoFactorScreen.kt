@@ -1225,7 +1225,10 @@ private fun EntryDialog(
                 val twoColumns = formHasTwoColumns(maxWidth)
 
                 Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    modifier =
+                        Modifier
+                            .verticalScroll(rememberScrollState())
+                            .clearFocusOnTap(),
                     verticalArrangement = Arrangement.spacedBy(Space.s),
                 ) {
                     OutlinedTextField(

@@ -88,7 +88,9 @@ fun ExportScreen(
     onClose: () -> Unit,
 ) {
     val picker = rememberFilePicker()
-    var format by remember { mutableStateOf(ExportFormat.Vault) }
+    // The encrypted container is the one to use unless there is a reason not to: the plain
+    // one writes the master key in clear, and a default is a recommendation.
+    var format by remember { mutableStateOf(ExportFormat.EncryptedVault) }
     var password by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var savedTo by remember { mutableStateOf<String?>(null) }

@@ -36,6 +36,7 @@ import dev.qualia.qualia2fa.resources.message_master_key_reset
 import dev.qualia.qualia2fa.resources.message_biometric_disabled
 import dev.qualia.qualia2fa.resources.message_biometric_enabled
 import dev.qualia.qualia2fa.resources.message_password_changed
+import dev.qualia.qualia2fa.resources.set_password_after_import_explainer
 import dev.qualia.qualia2fa.resources.settings_biometric_unavailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -81,6 +82,16 @@ private sealed interface Phase {
         val vault: Vault,
         val masterKey: ByteArray,
         val migrating: Boolean = false,
+        /**
+         * The vault that was open before this setup began, when it began from the settings.
+         *
+         * Cancelling then returns to that vault instead of to a first run: an import never
+         * writes anything before the password is confirmed, so the vault the user had is
+         * still on disk and still opens with the password it already had.
+         */
+        val resume: Vault? = null,
+        /** Whether the vault came from a portable file, which the password screen says. */
+        val fromImport: Boolean = false,
     ) : Phase
 }
 
@@ -197,6 +208,7 @@ fun App(
     val vaultDoesNotMatchPassword = stringResource(Res.string.error_vault_does_not_match_password)
     val passwordWrapFailed = stringResource(Res.string.error_password_wrap_failed)
     val setPasswordRequired = stringResource(Res.string.error_set_password_required)
+    val setPasswordAfterImport = stringResource(Res.string.set_password_after_import_explainer)
     val passwordChanged = stringResource(Res.string.message_password_changed)
     val oldPasswordRejected = stringResource(Res.string.error_old_password_rejected)
     val biometricBlobUnreadable = stringResource(Res.string.error_biometric_blob_unreadable)
@@ -679,6 +691,15 @@ fun App(
     fun cancelLockSetup() {
         val current = phase as? Phase.SetPassword ?: return
         wipe(current.masterKey)
+        val previous = current.resume
+        if (previous != null) {
+            // An import started from the settings: nothing was written, so the vault that was
+            // open is still the one on disk and still opens with its old password.
+            vault = previous
+            message = null
+            phase = Phase.Main(Tab.Settings)
+            return
+        }
         vault = null
         if (current.migrating) {
             // The legacy key and vault are untouched. The user can try the migration again
@@ -726,58 +747,115 @@ fun App(
     }
 
     /**
-     * Restores an account from a portable file chosen on the login screen.
+     * Opens a portable file and makes its vault the account of this session, once a password is set.
      *
      * The file may be either `.q2fa` shape or the old key-only recovery file: the library
      * recognizes all three, and this path only has to say what to do with the answer. A plain
      * `.q2fa` needs no passphrase, which is why the screen accepts an empty one.
+     *
+     * The recovered master key goes into an **ephemeral** store, never the platform one: the
+     * password screen writes the lock and only then is the vault saved. That is what makes a
+     * failed or cancelled restore leave the device exactly as it was, and it is also why
+     * importing never has to touch the platform key store before the password is known.
+     * Argon2id is deliberately expensive, hence the background dispatcher.
+     *
+     * [resume] is the vault that was open before this began, when the import started in the
+     * settings; cancelling the password screen returns to it. [currentVaultData] is the vault
+     * this device already has, serialized from memory when the import started in the settings,
+     * so an old key-only recovery file opens the vault the user is looking at rather than a
+     * slightly older copy on disk. [onFailure] receives the text to show when the file is not
+     * accepted, because the screen that asked is not necessarily the login screen.
      */
-    fun restoreFrom(file: ByteArray, passphrase: String) {
+    fun restorePortable(
+        file: ByteArray,
+        passphrase: String,
+        resume: Vault?,
+        currentVaultData: ByteArray?,
+        onFailure: (String) -> Unit,
+    ) {
         val device = storage
-        val platformStore = device?.masterKeyStore
-        if (device == null || platformStore == null) {
-            message = noKeyStore
+        if (device == null) {
+            onFailure(noKeyStore)
             return
         }
 
         scope.launch {
-            // The recovered master key goes into an ephemeral store, not the platform one:
-            // the password screen writes the lock and only then is the vault saved. Argon2id
-            // is deliberately expensive, hence the background dispatcher.
             val ephemeral = Qualia.ephemeralMasterKeyStore()
             val outcome =
-                withContext(Dispatchers.Default) {
-                    restorePortableFile(file, passphrase, ephemeral, device.loadVault())
+                try {
+                    withContext(Dispatchers.Default) {
+                        restorePortableFile(
+                            file,
+                            passphrase,
+                            ephemeral,
+                            currentVaultData ?: device.loadVault(),
+                        )
+                    }
+                } catch (_: Exception) {
+                    // A file read or a platform store that fails before it can answer is a
+                    // refusal to restore, not a reason to take the application down with it.
+                    ephemeral.delete()
+                    onFailure(recoveryVaultFailed)
+                    return@launch
                 }
             when (outcome) {
                 is PortableRestore.Recovered -> {
                     val master = ephemeral.load()?.copyOf()
                     ephemeral.delete()
                     if (master == null) {
-                        message = recoveryVaultFailed
+                        onFailure(recoveryVaultFailed)
                     } else {
-                        phase = Phase.SetPassword(outcome.vault, master)
+                        message = null
+                        phase =
+                            Phase.SetPassword(
+                                outcome.vault,
+                                master,
+                                resume = resume,
+                                fromImport = true,
+                            )
                     }
                 }
 
                 PortableRestore.KeyOnly -> {
                     ephemeral.delete()
-                    message = recoveryKeyOnly
+                    onFailure(recoveryKeyOnly)
                 }
                 PortableRestore.BareVault -> {
                     ephemeral.delete()
-                    message = recoveryBareVault
+                    onFailure(recoveryBareVault)
                 }
                 PortableRestore.VaultFailed -> {
                     ephemeral.delete()
-                    message = recoveryVaultFailed
+                    onFailure(recoveryVaultFailed)
                 }
                 PortableRestore.Rejected -> {
                     ephemeral.delete()
-                    message = recoveryRejected
+                    onFailure(recoveryRejected)
                 }
             }
         }
+    }
+
+    /** Restores an account from a portable file chosen on the login screen. */
+    fun restoreFrom(file: ByteArray, passphrase: String) {
+        restorePortable(file, passphrase, resume = null, currentVaultData = null) { message = it }
+    }
+
+    /**
+     * Restores an account from a portable file chosen in the settings.
+     *
+     * The vault that was open is kept as the way back: the import is not written until the
+     * password screen confirms, so cancelling must return to that vault rather than to a first
+     * run that would invite the user to create over it.
+     */
+    fun restoreFromSettings(file: ByteArray, passphrase: String, onResult: (String?) -> Unit) {
+        val current = vault
+        restorePortable(
+            file,
+            passphrase,
+            resume = current,
+            currentVaultData = current?.serialize(),
+        ) { onResult(it) }
     }
 
     /**
@@ -846,7 +924,12 @@ fun App(
     ) {
         key(language) {
             QualiaTheme(theme = theme) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .clearFocusOnTap(),
+                ) {
                     when (val current = phase) {
                         Phase.Loading -> LoadingScreen()
 
@@ -885,6 +968,7 @@ fun App(
                                 message = message,
                                 onConfirm = ::completeLockSetup,
                                 onCancel = ::cancelLockSetup,
+                                explainer = if (current.fromImport) setPasswordAfterImport else null,
                             )
 
                         Phase.Joining ->
@@ -938,7 +1022,6 @@ fun App(
                                                 vault = currentVault,
                                                 protection = protection,
                                                 identity = identity,
-                                                masterKeyStore = store,
                                                 lockEnabled = lockEnabled,
                                                 biometricEnabled = biometricEnabled,
                                                 language = language,
@@ -949,6 +1032,7 @@ fun App(
                                                 onEnableBiometric = ::enableBiometric,
                                                 onDisableBiometric = ::disableBiometric,
                                                 onChangePassword = ::changePassword,
+                                                onRestorePortable = ::restoreFromSettings,
                                                 onImported = { imported ->
                                                     // The account changed under this device: the
                                                     // file on disk belongs to the old one, so the
