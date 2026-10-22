@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,7 +20,13 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.Modifier
+import com.qiushui1012.qualia.bioauth.KeystoreBiometricSealer
+import dev.qualia.qualia2fa.resources.Res
+import dev.qualia.qualia2fa.resources.biometric_prompt_cancel
+import dev.qualia.qualia2fa.resources.biometric_prompt_subtitle
+import dev.qualia.qualia2fa.resources.biometric_prompt_title
 import java.nio.file.Path
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * The Android entry point.
@@ -96,6 +103,16 @@ class MainActivity : FragmentActivity() {
 
         val dataDirectory: Path = filesDir.toPath()
         setContent {
+            // The prompt is drawn by the system, so its words are handed to it here, where the
+            // interface's language is known and can change while the activity lives.
+            val promptText =
+                KeystoreBiometricSealer.PromptText(
+                    title = stringResource(Res.string.biometric_prompt_title),
+                    subtitle = stringResource(Res.string.biometric_prompt_subtitle),
+                    cancel = stringResource(Res.string.biometric_prompt_cancel),
+                )
+            SideEffect { sealer.promptText = promptText }
+
             // The vault's timeout counts time in front of the application. A file picker is a
             // window of the system, so the activity is paused while one is open; handing that
             // fact to the shared code is what keeps the timeout from firing there.

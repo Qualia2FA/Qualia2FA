@@ -147,13 +147,17 @@ fun SettingsScreen(
     theme: AppTheme,
     onSelectTheme: (AppTheme) -> Unit,
     onLock: () -> Unit,
-    onEnableBiometric: (onResult: (String?) -> Unit) -> Unit,
-    onDisableBiometric: (onResult: (String?) -> Unit) -> Unit,
+    onEnableBiometric: (onResult: (String?, Boolean) -> Unit) -> Unit,
+    onDisableBiometric: (onResult: (String?, Boolean) -> Unit) -> Unit,
     onChangePassword: (oldPassword: String, newPassword: String, onResult: (String?) -> Unit) -> Unit,
     onImported: (Vault) -> Unit,
     onReset: () -> Unit,
 ) {
     var message by remember { mutableStateOf<String?>(null) }
+    // Kept apart from [message]: this one is shown inside the card whose button was pressed,
+    // which is where the user is looking. The page-level line sits at the end of a page long
+    // enough that a result written there is off screen on a phone.
+    var biometricMessage by remember { mutableStateOf<Pair<String?, Boolean>?>(null) }
     var resetting by remember { mutableStateOf(false) }
     var changingPassword by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
@@ -270,7 +274,8 @@ fun SettingsScreen(
                 if (biometricEnabled) {
                     OutlinedButton(
                         onClick = {
-                            onDisableBiometric { result -> message = result }
+                            biometricMessage = null
+                            onDisableBiometric { result, isError -> biometricMessage = result to isError }
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
@@ -279,13 +284,15 @@ fun SettingsScreen(
                 } else {
                     OutlinedButton(
                         onClick = {
-                            onEnableBiometric { result -> message = result }
+                            biometricMessage = null
+                            onEnableBiometric { result, isError -> biometricMessage = result to isError }
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(Res.string.action_enable_biometric))
                     }
                 }
+                MessageLine(biometricMessage?.first, isError = biometricMessage?.second ?: true)
             }
         }
 

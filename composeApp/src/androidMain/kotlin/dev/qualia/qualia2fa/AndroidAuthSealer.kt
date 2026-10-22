@@ -15,19 +15,26 @@
 
 package dev.qualia.qualia2fa
 
+import android.os.Looper
+import android.util.Log
 import androidx.fragment.app.FragmentActivity
 import com.qiushui1012.qualia.bioauth.Availability as LibraryAvailability
 import com.qiushui1012.qualia.bioauth.BiometricSealer
 import com.qiushui1012.qualia.bioauth.KeystoreBiometricSealer
+import com.qiushui1012.qualia.bioauth.KeystoreBiometricSealer.PromptText as LibraryPromptText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 /**
  * The Android half of the biometric path: Android Keystore plus `BiometricPrompt`.
  *
  * The library's calls suspend while the prompt is up, and the Rust side calls back on its
- * own thread, so each call is bridged with `runBlocking` here. That is safe only because the
- * caller already moved off the main thread: the prompt itself is posted to the main looper
- * by the library, which is where Android requires it.
+ * own thread, so each call is bridged with `runBlocking` here. [seal] and [unseal] then run
+ * the body on the **main** thread: `BiometricPrompt` attaches its own fragment to the
+ * activity, and touching a fragment manager off the main thread is not something the
+ * platform supports. The calling thread is a worker, so blocking it while the main looper
+ * runs the prompt costs nothing; blocking the main looper itself would deadlock, which is
+ * why [onMainThread] refuses rather than trying.
  *
  * [activity] is held for the life of the sealer, and the sealer is created per screen by the
  * activity that owns it.
@@ -35,12 +42,27 @@ import kotlinx.coroutines.runBlocking
 class AndroidAuthSealer(
     private val activity: FragmentActivity,
 ) : AuthSealer {
-    private val sealer: BiometricSealer = KeystoreBiometricSealer(activity)
+    /**
+     * The words the system prompt shows.
+     *
+     * Written by the composition, which is where the current language is known: the interface
+     * is switched at runtime, and a prompt built from constants would come up in English on a
+     * device set to anything else. The default is the library's own wording, which is what a
+     * caller that never sets this gets.
+     */
+    @Volatile
+    var promptText: LibraryPromptText = LibraryPromptText()
 
     override val backendName: String = "android-keystore"
 
+    /**
+     * The sealer of the library, built per call so that the prompt always shows the current
+     * [promptText]. The object holds the activity, the alias and the words, and nothing else.
+     */
+    private fun sealer(): BiometricSealer = KeystoreBiometricSealer(activity, promptInfo = promptText)
+
     override fun availability(): AuthAvailability =
-        when (val value = runBlocking { sealer.availability() }) {
+        when (val value = runBlocking { sealer().availability() }) {
             is LibraryAvailability.Available ->
                 AuthAvailability.Available(backendName, value.hardwareBacked)
             is LibraryAvailability.Unavailable -> AuthAvailability.Unavailable(value.reason)
@@ -49,26 +71,48 @@ class AndroidAuthSealer(
 
     override fun seal(plaintext: ByteArray): ByteArray? =
         try {
-            runBlocking { sealer.seal(plaintext) }
-        } catch (_: Exception) {
+            onMainThread { sealer().seal(plaintext) }
+        } catch (error: Exception) {
             // The failure is reported as a `null`, and the caller shows one message: the
             // distinction between "cancelled" and "the platform refused" changes what the
             // user is told, not what this layer has to do about it.
+            Log.w(TAG, "sealing for the biometric path failed", error)
             null
         }
 
     override fun unseal(envelope: ByteArray): ByteArray? =
         try {
-            runBlocking { sealer.unseal(envelope) }
-        } catch (_: Exception) {
+            onMainThread { sealer().unseal(envelope) }
+        } catch (error: Exception) {
+            Log.w(TAG, "unsealing for the biometric path failed", error)
             null
         }
 
     override fun delete(): Boolean =
         try {
-            sealer.delete()
+            sealer().delete()
             true
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.w(TAG, "deleting the biometric key failed", error)
             false
         }
+
+    /**
+     * Runs [block], which suspends on the prompt, with the main looper driving it.
+     *
+     * Called from a worker thread: blocking that thread until the prompt is answered is what
+     * lets the Rust side see a plain return value. Called from the main thread it would wait
+     * for a looper that is waiting for this call, so that case fails instead of hanging.
+     */
+    private fun <T> onMainThread(block: suspend () -> T): T {
+        check(Looper.myLooper() != Looper.getMainLooper()) {
+            "the biometric prompt needs to be driven from the main thread, not blocked by it"
+        }
+        return runBlocking(Dispatchers.Main) { block() }
+    }
+
+    private companion object {
+        /** The tag this layer's failures appear under in the platform log. */
+        const val TAG = "QualiaBioAuth"
+    }
 }

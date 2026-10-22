@@ -266,6 +266,7 @@
     <string name="sync_lan_send_failed">The state could not be sent to that device.</string>
     <string name="sync_lan_nothing_received">Nothing arrived from that device. It has to send its state from its own screen, and both devices have to be on the same WiFi.</string>
     <string name="sync_lan_waiting">Waiting for the other device's state, up to %1$d seconds…</string>
+    <string name="sync_lan_cancel_wait">Cancel the wait</string>
     <string name="action_stop_lan">Stop looking</string>
 
     <!-- Pairing a new device, from the sync screen -->
@@ -426,4 +427,7 @@
     <string name="message_biometric_disabled">Biometric unlock is disabled; the platform credential was deleted.</string>
     <string name="error_biometric_failed">The platform authentication did not complete. Nothing was changed.</string>
     <string name="error_biometric_blob_unreadable">The biometric unlock data on this device cannot be read. Use the password.</string>
+    <string name="biometric_prompt_title">Unlock Qualia2FA</string>
+    <string name="biometric_prompt_subtitle">Confirm it is you</string>
+    <string name="biometric_prompt_cancel">Cancel</string>
 </resources>

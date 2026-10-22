@@ -259,6 +259,7 @@
     <string name="sync_lan_send_failed">状态没能发到那台设备。</string>
     <string name="sync_lan_nothing_received">对方什么都没有发来。它需要在自己的界面上发送状态，而且两台设备要在同一个 WiFi 上。</string>
     <string name="sync_lan_waiting">正在等对方的状态，最多 %1$d 秒……</string>
+    <string name="sync_lan_cancel_wait">取消等待</string>
     <string name="action_stop_lan">停止查找</string>
 
     <!-- 配对新设备（在同步界面里） -->
@@ -419,4 +420,7 @@
     <string name="message_biometric_disabled">生物识别解锁已关闭，平台凭据已删除。</string>
     <string name="error_biometric_failed">平台认证没有完成，没有做任何改动。</string>
     <string name="error_biometric_blob_unreadable">这台设备上的生物识别解锁数据读不出来，请用密码。</string>
+    <string name="biometric_prompt_title">解锁 Qualia2FA</string>
+    <string name="biometric_prompt_subtitle">确认是你本人</string>
+    <string name="biometric_prompt_cancel">取消</string>
 </resources>
