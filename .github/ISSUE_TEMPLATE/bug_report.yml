@@ -1,0 +1,83 @@
+name: Bug Report - Bug反馈
+description: Create a report to help us improve. - 反馈问题，帮助我们改进
+title: "[Bug] "
+labels:
+  - 🐛 Bug
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filling in this `issue`, please make sure that there are no similar or duplicate `issues` that have been opened.
+        填写此 `issue` 前，请先确认已经开启的 `issue` 没有类似或重复的 `issue`。
+
+        Please do not paste the contents of your vault, your unlock password, any one-time secret, or a pairing or sync code. The application version, the platform and what you saw are enough to start from.
+        请不要贴出保险库内容、解锁密码、任何一次性密钥，或配对/同步用的二维码文本。版本、平台和你看到的现象就足够开始排查。
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: OS Version - 操作系统
+      description: |
+        Qualia2FA is built for these two platforms.
+        Qualia2FA 只为这两个平台构建。
+      options:
+        - Windows 11
+        - Windows 10
+        - Android
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version Details - 版本信息
+      description: |
+        What version of Qualia2FA do you use?
+        你使用的 Qualia2FA 版本是什么？
+      placeholder: Qualia2FA version
+    validations:
+      required: true
+
+  - type: textarea
+    id: exist
+    attributes:
+      label: Existing behavior - 现有行为
+      description: |
+        Please describe the problem you have encountered carefully.
+        请仔细描述你所遇到的问题。
+    validations:
+      required: true
+
+  - type: textarea
+    id: expect
+    attributes:
+      label: Expected behavior - 预期行为
+      description: |
+        Please describe in detail the results you wish to achieve.
+        请仔细描述你要得到的结果。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: To Reproduce - 复现问题
+      description: |
+        How do you trigger this bug? Please walk us through it step by step.
+        这个 bug 是怎么触发的？请详细告诉我们是怎样出现这个情况的。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: know
+    attributes:
+      label: Checks - 检查项
+      options:
+        - label: I have searched the [issue tracker](https://github.com/Qualia2FA/Qualia2FA/issues) and confirmed that there is no identical issue. 我已经搜索[问题追踪器](https://github.com/Qualia2FA/Qualia2FA/issues)并且确认没有相同的 Issue。
+          required: true
+        - label: I admit that I previously checked all options without thorough verification and directly submitted this Issue, and I agree that it can be closed directly. 我承认此前未充分核实便勾选了所有选项并直接提交此 Issue ，且同意该 Issue 可被直接关闭。
+        - label: I confirm that I am currently using the latest snapshot or LTS version of Qualia2FA. If not, this issue can be closed directly. 我确认当前使用的是 Qualia2FA 的最新快照版本或 LTS 版本，若非如此，此 Issue 可被直接关闭。
+          required: true
+        - label: I promise to provide a detailed description of the encountered issue, along with relevant logs and screenshots, rather than offering incomplete or vague information. 我承诺将详细描述遇到的问题，并提供相关日志与截图，而非提供不完整或模糊的信息。
+          required: true
