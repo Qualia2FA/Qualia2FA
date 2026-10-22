@@ -312,93 +312,16 @@ jobs:
           cp composeApp/build/compose/binaries/main/exe/*.exe "dist/Qualia2FA-${GITHUB_REF_NAME}.exe"
           ls -l dist
 
-      # SignPath signs what one request describes, and a request carries one GitHub Actions
-      # artifact, so the two installers travel together as a zip and come back as the two
-      # files the Release publishes. The artifact configuration describes that zip: an MSI
-      # whose package is signed, and the Inno Setup executable signed as the PE file it is.
-      #
-      # A failure here fails the job on purpose. The installers exist by now, and uploading
-      # them anyway would put unsigned binaries under a release that says it is signed, which
-      # is worse than a release with no Windows artifacts at all.
-      - name: Zip the installers for the signing request
-        shell: pwsh
-        run: |
-          Compress-Archive -Path dist\*.msi, dist\*.exe -DestinationPath unsigned.zip
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [IO.Compression.ZipFile]::OpenRead("$PWD/unsigned.zip").Entries |
-            ForEach-Object { Write-Host "  $($_.FullName)" }
-
-      # The signing service is reached over its REST API rather than through the GitHub
-      # connector: the connector is a separate trusted build system that an organization has
-      # to allow, and until it is allowed every request fails at the login step. The API needs
-      # a token whose user is a submitter for the signing policy named below.
-      #
-      # The input is the zip the previous step built, because the artifact configuration
-      # describes a zip root: one request carries one artifact, and this is how both installers
-      # travel in it. The result comes back as a zip of the same shape, which the next step
-      # expands so the Release keeps the two installers separate.
-      - name: Sign the installers through the SignPath API
-        shell: pwsh
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-          SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # Which command installs the module depends on which PowerShellGet the runner has, and
-          # the difference is not cosmetic: PowerShell 7 ships PowerShellGet v3, whose
-          # `Install-PSResource` needs no NuGet provider at all, while the older `Install-Module`
-          # path needs one -- and asking for that provider interactively is how the step fails on
-          # a runner, where there is nobody to answer the prompt. Both are tried, newest first.
-          if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
-            Install-PSResource -Name SignPath -Scope CurrentUser -TrustRepository -Quiet
-          } else {
-            try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { }
-            Install-Module -Name SignPath -Scope CurrentUser -Force -AllowClobber
-          }
-          Import-Module SignPath
-          Get-Command Submit-SigningRequest | ForEach-Object { Write-Host "cmdlet available: $($_.Name) from $($_.Source)" }
-          $arguments = @{
-            InputArtifactPath                     = "$PWD/unsigned.zip"
-            ApiToken                              = $env:SIGNPATH_API_TOKEN
-            OrganizationId                        = '05949a10-8af0-4006-96b0-b1e7041d6831'
-            ProjectSlug                           = 'Qualia2FA'
-            SigningPolicySlug                     = 'Qualia2FA'
-            OutputArtifactPath                    = "$PWD/signed.zip"
-            WaitForCompletion                     = $true
-            WaitForCompletionTimeoutInSeconds     = 1800
-            ServiceUnavailableTimeoutInSeconds    = 1800
-            Description                           = "Qualia2FA $env:GITHUB_REF_NAME from $env:GITHUB_SHA"
-          }
-          # Empty means "the project's default artifact configuration", which is what the
-          # signing request should use when the repository does not name one.
-          if ($env:SIGNPATH_ARTIFACT_CONFIGURATION_SLUG) {
-            $arguments.ArtifactConfigurationSlug = $env:SIGNPATH_ARTIFACT_CONFIGURATION_SLUG
-          }
-          # A failure here has to be readable without downloading a log archive, and the job log
-          # endpoint wants admin rights for an anonymous reader. The service's own message is the
-          # only thing that says *why* it refused, so it is emitted as an annotation.
-          try {
-            Submit-SigningRequest @arguments
-          } catch {
-            $message = $_.Exception.Message
-            if ($_.ErrorDetails -and $_.ErrorDetails.Message) { $message = $_.ErrorDetails.Message }
-            Write-Host "::error::the signing request failed: $message"
-            throw
-          }
-          Get-Item "$PWD/signed.zip" | ForEach-Object { Write-Host "signed archive: $($_.Length) bytes" }
-          Expand-Archive -Path "$PWD/signed.zip" -DestinationPath "$PWD/signed" -Force
-          Get-ChildItem "$PWD/signed" | ForEach-Object { Write-Host "  $($_.Name)" }
       - name: Upload the installers
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ls -l signed
           if gh release upload "$GITHUB_REF_NAME" \
-               signed/*.msi \
-               signed/*.exe \
+               dist/*.msi \
+               dist/*.exe \
                --clobber; then
-            echo "Uploaded the signed installers to $GITHUB_REF_NAME"
+            echo "Uploaded the installers to $GITHUB_REF_NAME"
           else
-            echo "::warning::the installers were signed, but uploading them to the Release failed (usually a missing contents: write permission)."
+            echo "::warning::the installers were built, but uploading them to the Release failed (usually a missing contents: write permission)."
           fi

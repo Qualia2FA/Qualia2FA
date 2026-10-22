@@ -14,10 +14,10 @@ Qualia2FA，桌面与 Android 应用。
 
 **请把所有设备一起升级。** 保险库文件格式仍是 4，0.4.0 能直接打开 0.3.x 写出的保险库，打开后要求在这台设备上设置解锁密码。反过来不行：一旦某台设备启用了锁定，它的主密钥就不在平台密钥库里单独存在了，0.3.x 读不出它。同步载荷仍是 4，0.4.0 与 0.3.x 之间仍可同步。
 
-| 平台                      | 产物                                                 | 说明                                                                                                    |
-|---------------------------|------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| Android 8.0+（64 位 ARM） | `Qualia2FA-@VERSION@-arm64.apk`                      | 用项目的发布密钥签名                                                                                    |
-| Windows 10/11（x64）      | `Qualia2FA-@VERSION@.msi`、`Qualia2FA-@VERSION@.exe` | 已签名，但证书尚不被 Windows 信任：安装器会警告；在证书来自受信任的签发者之前，这个签名不能当作身份依据 |
+| 平台                      | 产物                                                 | 说明                                      |
+|---------------------------|------------------------------------------------------|-------------------------------------------|
+| Android 8.0+（64 位 ARM） | `Qualia2FA-@VERSION@-arm64.apk`                      | 用项目的发布密钥签名                      |
+| Windows 10/11（x64）      | `Qualia2FA-@VERSION@.msi`、`Qualia2FA-@VERSION@.exe` | 未签名，首次运行时会触发 SmartScreen 警告 |
 
 Windows 上的生物识别解锁由 Windows Hello 提供，需要系统支持 WebAuthn 的 PRF 扩展（较新的 Windows 11 构建）。系统不支持时这一项如实报告不可用，密码照常可用。
 
@@ -52,10 +52,10 @@ The other direction does not hold: once a device has the lock enabled, its maste
 longer exists in the platform key store alone, so 0.3.x cannot read it. The sync payload
 is still 4, and 0.4.0 still synchronizes with 0.3.x.
 
-| Platform                  | Artifact                                             | Notes                                                                                                                                                                             |
-|---------------------------|------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Android 8.0+ (64-bit ARM) | `Qualia2FA-@VERSION@-arm64.apk`                      | signed with the project's release key                                                                                                                                             |
-| Windows 10/11 (x64)       | `Qualia2FA-@VERSION@.msi`, `Qualia2FA-@VERSION@.exe` | signed, with a certificate Windows does not trust yet: the installer will warn, and the signature is not an identity to rely on until the certificate comes from a trusted issuer |
+| Platform                  | Artifact                                             | Notes                                              |
+|---------------------------|------------------------------------------------------|----------------------------------------------------|
+| Android 8.0+ (64-bit ARM) | `Qualia2FA-@VERSION@-arm64.apk`                      | signed with the project's release key              |
+| Windows 10/11 (x64)       | `Qualia2FA-@VERSION@.msi`, `Qualia2FA-@VERSION@.exe` | not code-signed, so SmartScreen warns on first run |
 
 Biometric unlock on Windows is Windows Hello, and it needs a system that supports the
 PRF extension of WebAuthn (recent Windows 11 builds). Where the system does not, the

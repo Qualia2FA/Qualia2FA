@@ -35,10 +35,10 @@ signed in to the same account can share 2FA entries directly, and merging takes 
 Every version is published on the [Releases](https://github.com/Qualia2FA/Qualia2FA/releases)
 page:
 
-| Platform                           | Artifacts                            | Notes                                                                                   |
-|------------------------------------|--------------------------------------|-----------------------------------------------------------------------------------------|
-| Windows 10 / 11 (x64)              | `.msi` and `.exe` offline installers | Signed, but with a self-signed certificate, so Windows warns about an unknown publisher |
-| Android 8.0 and above (64-bit ARM) | `.apk`                               | Signed with the project's release key, installable as it is                             |
+| Platform                           | Artifacts                            | Notes                                                       |
+|------------------------------------|--------------------------------------|-------------------------------------------------------------|
+| Windows 10 / 11 (x64)              | `.msi` and `.exe` offline installers | Not code-signed, so SmartScreen warns on first run          |
+| Android 8.0 and above (64-bit ARM) | `.apk`                               | Signed with the project's release key, installable as it is |
 
 The Android build currently ships only the `arm64-v8a` architecture, and the Windows build
 only `x86_64`. Pull requests are very welcome.
