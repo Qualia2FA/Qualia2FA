@@ -224,8 +224,8 @@ android {
         // encoding of a sync code: both are API 26.
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.4.0"
+        versionCode = 10
+        versionName = "0.4.1"
 
         ndk.abiFilters += setOf("arm64-v8a")
     }
