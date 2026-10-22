@@ -197,38 +197,11 @@ jobs:
             echo "the Release already exists"
             exit 0
           fi
-          cat > notes.md <<'NOTES'
-          Qualia2FA，桌面与 Android 应用。
-
-          **请把所有设备一起升级。** 本版本写出保险库格式 4 与同步载荷 4，无法与 0.2.x 同步：载荷只接受当前版本，因此对端得到的是明确的版本错误，而不是认证失败。老版本会把带图标的条目与树状分组读成别的东西，这正是抬高版本号要挡住的事。版本 1–3 写出的保险库文件仍然能打开。
-
-          | 平台 | 产物 | 说明 |
-          |---|---|---|
-          | Android 8.0+（64 位 ARM） | `Qualia2FA-v<version>-arm64.apk` | 用项目的发布密钥签名 |
-          | Windows 10/11（x64） | `Qualia2FA-v<version>.msi`、`Qualia2FA-v<version>.exe` | 已签名，但证书尚不被 Windows 信任：安装器会警告；在证书来自受信任的签发者之前，这个签名不能当作身份依据 |
-
-          应用不在后台同步。配对与同步的局域网部分只在需要它的界面打开时启用；首次配对仍然要读二维码，它把两台设备绑定在一起。
-
-          ---
-
-          Qualia2FA, the desktop and Android application.
-
-          **Upgrade every device together.** This version writes vault format 4 and sync
-          payload 4, and it cannot synchronize with 0.2.x at all: a payload accepts the current
-          version only, so what comes back is a version error rather than a failed
-          authentication. An older device reads an icon-carrying entry and the tree of groups
-          as something else, which is exactly what the version bump prevents. Vault files
-          written by versions 1 through 3 still open.
-
-          | Platform | Artifact | Notes |
-          |---|---|---|
-          | Android 8.0+ (64-bit ARM) | `Qualia2FA-v<version>-arm64.apk` | signed with the project's release key |
-          | Windows 10/11 (x64) | `Qualia2FA-v<version>.msi`, `Qualia2FA-v<version>.exe` | signed, with a certificate Windows does not trust yet: the installer will warn, and the signature is not an identity to rely on until the certificate comes from a trusted issuer |
-
-          Nothing is synchronized in the background. The local-network half of pairing and
-          syncing is opened while a screen that needs it is up, and the first pairing still
-          reads a QR code, which is what pins the two devices to each other.
-          NOTES
+          # The body lives in `RELEASE_NOTES.md`, so the two platforms cannot publish
+          # different notes, and the wording can change without touching this workflow. The
+          # token in its artifact tables becomes the tag, which is what the file names are
+          # built from.
+          sed "s/@VERSION@/${GITHUB_REF_NAME}/g" RELEASE_NOTES.md > notes.md
           # A Release created by the other job at the same moment is not a failure: what this
           # job has to do is upload, and that step needs the Release to exist, not to have been
           # created here.
@@ -317,38 +290,11 @@ jobs:
             echo "the Release already exists"
             exit 0
           fi
-          cat > notes.md <<'NOTES'
-          Qualia2FA，桌面与 Android 应用。
-
-          **请把所有设备一起升级。** 本版本写出保险库格式 4 与同步载荷 4，无法与 0.2.x 同步：载荷只接受当前版本，因此对端得到的是明确的版本错误，而不是认证失败。老版本会把带图标的条目与树状分组读成别的东西，这正是抬高版本号要挡住的事。版本 1–3 写出的保险库文件仍然能打开。
-
-          | 平台 | 产物 | 说明 |
-          |---|---|---|
-          | Android 8.0+（64 位 ARM） | `Qualia2FA-v<version>-arm64.apk` | 用项目的发布密钥签名 |
-          | Windows 10/11（x64） | `Qualia2FA-v<version>.msi`、`Qualia2FA-v<version>.exe` | 已签名，但证书尚不被 Windows 信任：安装器会警告；在证书来自受信任的签发者之前，这个签名不能当作身份依据 |
-
-          应用不在后台同步。配对与同步的局域网部分只在需要它的界面打开时启用；首次配对仍然要读二维码，它把两台设备绑定在一起。
-
-          ---
-
-          Qualia2FA, the desktop and Android application.
-
-          **Upgrade every device together.** This version writes vault format 4 and sync
-          payload 4, and it cannot synchronize with 0.2.x at all: a payload accepts the current
-          version only, so what comes back is a version error rather than a failed
-          authentication. An older device reads an icon-carrying entry and the tree of groups
-          as something else, which is exactly what the version bump prevents. Vault files
-          written by versions 1 through 3 still open.
-
-          | Platform | Artifact | Notes |
-          |---|---|---|
-          | Android 8.0+ (64-bit ARM) | `Qualia2FA-v<version>-arm64.apk` | signed with the project's release key |
-          | Windows 10/11 (x64) | `Qualia2FA-v<version>.msi`, `Qualia2FA-v<version>.exe` | signed, with a certificate Windows does not trust yet: the installer will warn, and the signature is not an identity to rely on until the certificate comes from a trusted issuer |
-
-          Nothing is synchronized in the background. The local-network half of pairing and
-          syncing is opened while a screen that needs it is up, and the first pairing still
-          reads a QR code, which is what pins the two devices to each other.
-          NOTES
+          # The body lives in `RELEASE_NOTES.md`, so the two platforms cannot publish
+          # different notes, and the wording can change without touching this workflow. The
+          # token in its artifact tables becomes the tag, which is what the file names are
+          # built from.
+          sed "s/@VERSION@/${GITHUB_REF_NAME}/g" RELEASE_NOTES.md > notes.md
           gh release create "$GITHUB_REF_NAME" \
             --title "Qualia2FA $GITHUB_REF_NAME" \
             --notes-file notes.md \
