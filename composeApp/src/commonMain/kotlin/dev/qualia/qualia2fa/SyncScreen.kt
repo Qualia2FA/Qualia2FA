@@ -94,6 +94,7 @@ import dev.qualia.qualia2fa.resources.sync_lan_send_failed
 import dev.qualia.qualia2fa.resources.sync_lan_sent
 import dev.qualia.qualia2fa.resources.sync_lan_unavailable
 import dev.qualia.qualia2fa.resources.sync_lan_waiting
+import dev.qualia.qualia2fa.resources.sync_lan_cancel_wait
 import dev.qualia.qualia2fa.resources.sync_heading
 import dev.qualia.qualia2fa.resources.sync_copy_ciphertext
 import dev.qualia.qualia2fa.resources.sync_copy_text
@@ -109,6 +110,7 @@ import dev.qualia.qualia2fa.resources.sync_read_explainer
 import dev.qualia.qualia2fa.resources.sync_result_needs_decision
 import dev.qualia.qualia2fa.resources.sync_result_nothing_new
 import dev.qualia.qualia2fa.resources.sync_result_summary
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
@@ -167,6 +169,8 @@ fun SyncScreen(
     var lanSelected by remember { mutableStateOf<String?>(null) }
     var lanSentTo by remember { mutableStateOf<String?>(null) }
     var lanReceiving by remember { mutableStateOf(false) }
+    /** The wait a receive is spending, so the user can leave it. */
+    var receiveJob by remember { mutableStateOf<Job?>(null) }
     val lanSession = remember(vault, lanChannel) { lanChannel?.let { Qualia.lanSyncSession(vault, it) } }
 
     val multicast = rememberMulticastHold()
@@ -300,7 +304,8 @@ fun SyncScreen(
             message = lanSendFailed
             return
         }
-        if (lan.send(target.deviceId)) {
+        val sent = lan.send(target.deviceId)
+        if (sent) {
             lanSentTo = target.deviceId
             message = null
         } else {
@@ -311,28 +316,36 @@ fun SyncScreen(
     /** Takes the other device's state, which is the direction that changes this vault. */
     fun receiveState() {
         val lan = lanSession ?: return
-        scope.launch {
-            lanReceiving = true
-            val result = lan.receive(LAN_RECEIVE_TIMEOUT_MS)
-            lanReceiving = false
-            when (result) {
-                is SyncMerge.Refused ->
-                    message =
-                        if (result.reason == SyncRefusal.NothingToRead) {
-                            lanNothingReceived
-                        } else {
-                            refusalTexts[result.reason]
-                        }
+        // The hint says what this device last sent, and taking the other side's state is the
+        // flow moving on: leaving it up would describe a step the user has already left.
+        lanSentTo = null
+        receiveJob =
+            scope.launch {
+                lanReceiving = true
+                try {
+                    val result = lan.receive(LAN_RECEIVE_TIMEOUT_MS)
+                    when (result) {
+                        is SyncMerge.Refused ->
+                            message =
+                                if (result.reason == SyncRefusal.NothingToRead) {
+                                    lanNothingReceived
+                                } else {
+                                    refusalTexts[result.reason]
+                                }
 
-                is SyncMerge.Merged -> {
-                    outcome = result.outcome
-                    outcomeOverLan = true
-                    conflicts = PendingConflicts(lan.conflicts(), lan::conflicts, lan::decide)
-                    message = null
-                    onChanged()
+                        is SyncMerge.Merged -> {
+                            outcome = result.outcome
+                            outcomeOverLan = true
+                            conflicts = PendingConflicts(lan.conflicts(), lan::conflicts, lan::decide)
+                            message = null
+                            onChanged()
+                        }
+                    }
+                } finally {
+                    lanReceiving = false
+                    receiveJob = null
                 }
             }
-        }
     }
 
     DisposableEffect(Unit) {
@@ -488,6 +501,18 @@ fun SyncScreen(
                     if (lanReceiving) {
                         CircularProgressIndicator(modifier = Modifier.size(Space.xl))
                         Hint(stringResource(Res.string.sync_lan_waiting, LAN_RECEIVE_SECONDS))
+                        // A wait that is not going to be answered has to be leaveable: the
+                        // other device may be at a different vault, or at no screen at all, and
+                        // the user should not have to sit out the whole timeout to find out.
+                        OutlinedButton(
+                            onClick = {
+                                receiveJob?.cancel()
+                                receiveJob = null
+                                lanReceiving = false
+                            },
+                        ) {
+                            Text(stringResource(Res.string.sync_lan_cancel_wait))
+                        }
                     }
 
                     if (outcomeOverLan) {
