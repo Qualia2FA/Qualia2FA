@@ -71,6 +71,21 @@ import java.nio.file.Path
  * and the vault can neither pair nor sync.
  */
 class MainActivity : FragmentActivity() {
+    /**
+     * Routes a permission answer to the screen that asked for it.
+     *
+     * The system delivers it here and nowhere else, and the Compose launcher cannot be used by
+     * a `FragmentActivity` (see `LanPermissions`), so this is the hop between the two.
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        LanPermissions.deliver(requestCode, grantResults)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

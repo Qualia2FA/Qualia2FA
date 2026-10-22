@@ -1,18 +1,16 @@
 package dev.qualia.qualia2fa
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
@@ -75,32 +73,76 @@ private const val LOCK_TAG = "qualia2fa-lan"
 @Composable
 actual fun rememberLanPermission(): LanPermission {
     val context = LocalContext.current
-    // Kept as state rather than read once: a grant changes what is missing, and a second open
-    // of the local network must not ask for permissions that are already held (nor keep
-    // treating a grant made in the system settings as missing).
-    var missing by remember(context) { mutableStateOf(missingLanPermissions(context)) }
-    val pending = remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
-
-    val launcher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { answers ->
-            val answer = pending.value
-            pending.value = null
-            missing = missingLanPermissions(context)
-            answer?.invoke(answers.isNotEmpty() && answers.values.all { it })
-        }
-
-    return remember(missing, launcher) {
+    // Nothing is cached here: a permission granted between two opens — in the system settings,
+    // say — has to be seen as granted, and one revoked has to be asked for again.
+    return remember(context) {
         object : LanPermission {
             override fun request(onAnswer: (Boolean) -> Unit) {
+                val missing = missingLanPermissions(context)
                 if (missing.isEmpty()) {
                     onAnswer(true)
                     return
                 }
-                pending.value = onAnswer
-                launcher.launch(missing.toTypedArray())
+                val activity = context.findActivity()
+                if (activity == null) {
+                    onAnswer(false)
+                    return
+                }
+                LanPermissions.request(activity, missing, onAnswer)
             }
         }
     }
+}
+
+/**
+ * The one permission request in flight, answered by [MainActivity] when the system dialog is
+ * dealt with.
+ *
+ * # Why the Compose launcher is not used
+ *
+ * `rememberLauncherForActivityResult` with a permission contract cannot be used by an activity
+ * that extends `FragmentActivity`: `ActivityResultRegistry` hands out request codes from
+ * `0x10000` upwards, and `FragmentActivity` — which the biometric prompt requires — throws
+ * `IllegalArgumentException: Can only use lower 16 bits for requestCode` for any code that does
+ * not fit in the lower sixteen bits. The request is therefore issued with a code of this
+ * application's own, below that boundary, and the answer is routed back by the activity's
+ * `onRequestPermissionsResult`.
+ *
+ * One request at a time is all this needs: the system dialog is modal, and every screen asks
+ * for the same set. A request that supersedes one still in flight answers the earlier one with
+ * `false`, so no caller is left waiting.
+ */
+internal object LanPermissions {
+    /** Any value below `0x10000`; the number itself carries no meaning. */
+    private const val REQUEST_CODE = 0x514C
+
+    private var pending: ((Boolean) -> Unit)? = null
+
+    /** Asks for [permissions], reporting the answer through [onAnswer] on the main thread. */
+    fun request(activity: Activity, permissions: List<String>, onAnswer: (Boolean) -> Unit) {
+        pending?.invoke(false)
+        pending = onAnswer
+        ActivityCompat.requestPermissions(activity, permissions.toTypedArray(), REQUEST_CODE)
+    }
+
+    /** Answers the request of [REQUEST_CODE]. Returns whether the code was this one. */
+    fun deliver(requestCode: Int, grantResults: IntArray): Boolean {
+        if (requestCode != REQUEST_CODE) return false
+        val answer = pending ?: return true
+        pending = null
+        answer(grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED })
+        return true
+    }
+}
+
+/** The activity [this] context belongs to, or `null` for an application context. */
+private fun Context.findActivity(): Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
 }
 
 /** The permissions of [LAN_PERMISSIONS] that this device has not granted yet. */
