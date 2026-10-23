@@ -1026,7 +1026,12 @@ private fun LinkDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogDefaults,
-        title = { Text(stringResource(Res.string.dialog_import_link)) },
+        title = {
+            Text(
+                stringResource(Res.string.dialog_import_link),
+                modifier = Modifier.fillMaxWidth().clearFocusOnTap(),
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
                 SecretField(
@@ -1212,7 +1217,10 @@ private fun EntryDialog(
         onDismissRequest = onDismiss,
         properties = DialogDefaults,
         title = {
-            Text(stringResource(if (initial == null) Res.string.dialog_add_entry else Res.string.dialog_edit_entry))
+            Text(
+                stringResource(if (initial == null) Res.string.dialog_add_entry else Res.string.dialog_edit_entry),
+                modifier = Modifier.fillMaxWidth().clearFocusOnTap(),
+            )
         },
         text = {
             // A wide dialog puts the short fields two to a row, a narrow one stacks them.

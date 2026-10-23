@@ -549,7 +549,7 @@ fun PassphraseDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogDefaults,
-        title = { Text(title) },
+        title = { Text(title, modifier = Modifier.fillMaxWidth().clearFocusOnTap()) },
         text = {
             Column(
                 modifier = Modifier.clearFocusOnTap(),

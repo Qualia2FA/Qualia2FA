@@ -453,7 +453,12 @@ private fun ChangePasswordDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogDefaults,
-        title = { Text(stringResource(Res.string.dialog_change_password_title)) },
+        title = {
+            Text(
+                stringResource(Res.string.dialog_change_password_title),
+                modifier = Modifier.fillMaxWidth().clearFocusOnTap(),
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.clearFocusOnTap(),
