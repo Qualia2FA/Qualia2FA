@@ -6,7 +6,7 @@
   is written by hand for the release at hand: what changed, and what a user has to do about
   it. Both platforms' jobs read this file, so the two jobs cannot publish different notes.
 -->
-> **本版本是 0.4.0 的修复版。** 它处理真机复验发现的问题：Android 上导入保险库不再崩溃；Windows 的文件选择框在文件类型里显示文件后缀；设置界面可以直接导入保险库，导入后要求为这台设备设置新的解锁密码；点击输入框以外的区域会收起键盘与光标；设置密码与修改密码的「再次输入」字段名称正确；导出默认选中「加密保险库」。
+> **本版本是 0.4.0 的修复版。** 它处理真机复验发现的问题：Android 上导入保险库不再崩溃，扫描页申请相机权限也不再崩溃；Windows 的文件选择框在文件类型里显示文件后缀；设置界面可以直接导入保险库，导入后要求为这台设备设置新的解锁密码；点击输入框以外的区域会收起键盘与光标；设置密码与修改密码的「再次输入」字段名称正确；导出默认选中「加密保险库」。
 >
 > 保险库文件格式仍是 4，同步载荷仍是 4：0.4.0 与 0.4.1 可以互相打开、互相同步，升级不需要迁移数据。
 
@@ -26,7 +26,8 @@ Windows 上的生物识别解锁由 Windows Hello 提供，需要系统支持 We
 ---
 
 > **This release fixes defects in 0.4.0.** It addresses what a pass on real devices
-> found: importing a vault no longer crashes on Android; the desktop file dialog shows
+> found: importing a vault no longer crashes on Android, and neither does the camera
+> permission request the scanner opens with; the desktop file dialog shows
 > the file suffixes in its file-type entry; a vault can be imported from the settings,
 > which asks for a new unlock password for this device afterwards; a tap outside a
 > field dismisses the keyboard and the caret; the repeat fields of both password
