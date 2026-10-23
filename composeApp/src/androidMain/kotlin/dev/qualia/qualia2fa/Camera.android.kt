@@ -7,8 +7,6 @@ import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.util.Size
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -78,15 +76,18 @@ actual fun CameraPreview(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
-    val permission =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-            granted = allowed
-        }
 
     // Asked for once, the first time the scanner is opened. A refusal is not an error: the
     // scanner says so and keeps the way in that needs no permission.
+    //
+    // The request goes through the activity's classic permission callback, not through
+    // `rememberLauncherForActivityResult`: the activity is a `FragmentActivity`, and the
+    // Compose registry's request codes do not fit in the 16 bits it accepts.
     LaunchedEffect(Unit) {
-        if (!granted) permission.launch(Manifest.permission.CAMERA)
+        if (granted) return@LaunchedEffect
+        val main = context.findMainActivity()
+        if (main == null) return@LaunchedEffect
+        main.requestCameraPermission { allowed -> granted = allowed }
     }
 
     var binding by remember { mutableStateOf(CameraStatus.Starting) }

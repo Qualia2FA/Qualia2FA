@@ -1,6 +1,12 @@
 package dev.qualia.qualia2fa
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -78,6 +84,109 @@ import org.jetbrains.compose.resources.stringResource
  * and the vault can neither pair nor sync.
  */
 class MainActivity : FragmentActivity() {
+    /** The answer to the image picker, while it is open. */
+    private var pendingImage: ((GrayPixels?) -> Unit)? = null
+
+    /** The answer to the document picker, while it is open. */
+    private var pendingRead: ((ByteArray?) -> Unit)? = null
+
+    /** The file being written, and the answer to hand it to, while the save dialog is open. */
+    private var pendingWrite: PendingWrite? = null
+
+    /** The answer to the camera permission request, while the system dialog is up. */
+    private var pendingCameraPermission: ((Boolean) -> Unit)? = null
+
+    /**
+     * Opens the system picker for an image.
+     *
+     * The classic result API is deliberate: `FragmentActivity` rejects the request codes the
+     * Compose activity-result registry uses (they do not fit in 16 bits), and that rejection
+     * is a crash on every picker. The codes below stay inside the range it accepts.
+     */
+    internal fun pickImage(onResult: (GrayPixels?) -> Unit) {
+        pendingImage = onResult
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            },
+            PICK_IMAGE_REQUEST,
+        )
+    }
+
+    /** Opens the system picker for a document of any type. */
+    internal fun readDocument(onResult: (ByteArray?) -> Unit) {
+        pendingRead = onResult
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = ANY_TYPE
+            },
+            READ_DOCUMENT_REQUEST,
+        )
+    }
+
+    /** Opens the system save dialog under [name], writing [bytes] where the user chooses. */
+    internal fun createDocument(name: String, bytes: ByteArray, onResult: (String?) -> Unit) {
+        pendingWrite = PendingWrite(bytes, onResult)
+        startActivityForResult(
+            Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = OCTET_STREAM
+                putExtra(Intent.EXTRA_TITLE, name)
+            },
+            CREATE_DOCUMENT_REQUEST,
+        )
+    }
+
+    /**
+     * Delivers the picker's answer to the callback that asked for it.
+     *
+     * Nothing is read or written when the user cancelled: the callback receives `null`, which
+     * is the answer every screen already reports as "nothing was chosen".
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
+        when (requestCode) {
+            PICK_IMAGE_REQUEST -> {
+                val answer = pendingImage
+                pendingImage = null
+                answer?.invoke(uri?.let { decodeGray(this, it) })
+            }
+
+            READ_DOCUMENT_REQUEST -> {
+                val answer = pendingRead
+                pendingRead = null
+                answer?.invoke(uri?.let { read(this, it) })
+            }
+
+            CREATE_DOCUMENT_REQUEST -> {
+                val request = pendingWrite
+                pendingWrite = null
+                if (request != null) request.answer(uri?.let { write(this, it, request.bytes) })
+            }
+        }
+    }
+
+    /**
+     * Asks for the camera, or answers at once when it is already allowed.
+     *
+     * The classic permission API is deliberate for the same reason the file pickers use the
+     * classic result API: `FragmentActivity` rejects the request codes the Compose registry
+     * uses, and the rejection is a crash rather than a refusal.
+     */
+    internal fun requestCameraPermission(onResult: (Boolean) -> Unit) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            onResult(true)
+            return
+        }
+        pendingCameraPermission = onResult
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+    }
+
     /**
      * Routes a permission answer to the screen that asked for it.
      *
@@ -90,6 +199,12 @@ class MainActivity : FragmentActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            val answer = pendingCameraPermission
+            pendingCameraPermission = null
+            answer?.invoke(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+            return
+        }
         LanPermissions.deliver(requestCode, grantResults)
     }
 
@@ -151,4 +266,15 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    private companion object {
+        /** Request codes below 0x10000: `FragmentActivity` refuses anything wider. */
+        const val PICK_IMAGE_REQUEST = 0x5101
+        const val READ_DOCUMENT_REQUEST = 0x5102
+        const val CREATE_DOCUMENT_REQUEST = 0x5103
+        const val CAMERA_PERMISSION_REQUEST = 0x5104
+    }
 }
+
+/** One file being written, and where to hand the answer. */
+internal class PendingWrite(val bytes: ByteArray, val answer: (String?) -> Unit)

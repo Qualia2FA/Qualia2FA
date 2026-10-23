@@ -1,18 +1,13 @@
 package dev.qualia.qualia2fa
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 
 /**
@@ -20,19 +15,24 @@ import androidx.compose.ui.platform.LocalContext
  *
  * # Why the answer arrives later
  *
- * Nothing here blocks. A picker is a separate activity, started with a launcher that has to
- * be registered while composing, so the result arrives on the main thread after the call that
- * asked for it has returned; [FilePicker]'s callbacks are where it is handed back. The pending
- * callback is held in composition state because the launcher's own callback is created once,
- * before any of it is known.
+ * Nothing here blocks. A picker is a separate activity, so the result arrives on the main
+ * thread after the call that asked for it has returned; [FilePicker]'s callbacks are where it
+ * is handed back. The pending callback lives on [MainActivity], which is also where the
+ * classic activity-result callback is delivered.
+ *
+ * # Why the classic result API, and not `rememberLauncherForActivityResult`
+ *
+ * [MainActivity] is a `FragmentActivity`, because the biometric prompt attaches a fragment of
+ * its own. `FragmentActivity.startActivityForResult` accepts only request codes in the lower
+ * 16 bits, while Compose's activity-result registry launches with codes above that range and
+ * throws `IllegalArgumentException: Can only use lower 16 bits for requestCode` on every
+ * picker. The classic API with small codes is the one the two requirements can share.
  *
  * # What is used
  *
- * * Images go through the photo picker (`PickVisualMedia`), which grants access to the one
- *   image the user chose and asks for no permission at all; on releases without it the
- *   contract falls back to opening a document.
- * * Reading and writing other files go through the Storage Access Framework, whose grant is
- *   per file and lasts as long as the operation does.
+ * * Images and other documents go through the Storage Access Framework (`ACTION_OPEN_DOCUMENT`
+ *   and `ACTION_CREATE_DOCUMENT`), whose grant is per file and lasts as long as the operation
+ *   does.
  *
  * An image is decoded here because that is the one part with no portable API, and it is
  * decoded **downscaled**: a picture straight out of a modern camera is larger than the
@@ -41,57 +41,26 @@ import androidx.compose.ui.platform.LocalContext
  */
 @Composable
 actual fun rememberFilePicker(): FilePicker {
-    val context = LocalContext.current
-    var pendingImage by remember { mutableStateOf<((GrayPixels?) -> Unit)?>(null) }
-    var pendingRead by remember { mutableStateOf<((ByteArray?) -> Unit)?>(null) }
-    var pendingWrite by remember { mutableStateOf<PendingWrite?>(null) }
-
-    val image =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            val answer = pendingImage
-            pendingImage = null
-            answer?.invoke(uri?.let { decodeGray(context, it) })
-        }
-
-    val reader =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            val answer = pendingRead
-            pendingRead = null
-            answer?.invoke(uri?.let { read(context, it) })
-        }
-
-    val writer =
-        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(OCTET_STREAM)) { uri ->
-            val request = pendingWrite
-            pendingWrite = null
-            if (request == null) return@rememberLauncherForActivityResult
-            if (uri == null) return@rememberLauncherForActivityResult request.answer(null)
-            request.answer(write(context, uri, request.bytes))
-        }
-
-    return remember(image, reader, writer) {
-        AndroidFilePicker(
-            pickImage = { image.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-            pickDocument = { reader.launch(arrayOf(ANY_TYPE)) },
-            createDocument = { name -> writer.launch(name) },
-            holdImage = { pendingImage = it },
-            holdRead = { pendingRead = it },
-            holdWrite = { pendingWrite = it },
-        )
-    }
+    val activity = LocalContext.current.findMainActivity()
+    return remember(activity) { AndroidFilePicker(activity) }
 }
 
-/** One file being written, and where to hand the answer. */
-private class PendingWrite(val bytes: ByteArray, val answer: (String?) -> Unit)
+/** The activity around [this] context, or `null` outside a real window (a preview, a test). */
+internal tailrec fun Context.findMainActivity(): MainActivity? =
+    when (this) {
+        is MainActivity -> this
+        is ContextWrapper -> baseContext.findMainActivity()
+        else -> null
+    }
 
 /** The type a document with no registered type of its own is offered and read as. */
-private const val OCTET_STREAM = "application/octet-stream"
+internal const val OCTET_STREAM = "application/octet-stream"
 
 /** The tag diagnostics about a picked file are written under. */
 private const val TAG = "Qualia2FA"
 
 /** The filter that matches every file: an application-specific extension has no type. */
-private const val ANY_TYPE = "*/*"
+internal const val ANY_TYPE = "*/*"
 
 /** The longest edge an image is decoded at, in pixels. */
 private const val MAX_IMAGE_EDGE = 2048
@@ -106,17 +75,9 @@ private const val MAX_IMAGE_EDGE = 2048
  */
 private const val MAX_FILE_BYTES = 64 * 1024 * 1024 + 64 * 1024
 
-private class AndroidFilePicker(
-    private val pickImage: () -> Unit,
-    private val pickDocument: () -> Unit,
-    private val createDocument: (String) -> Unit,
-    private val holdImage: (((GrayPixels?) -> Unit)?) -> Unit,
-    private val holdRead: (((ByteArray?) -> Unit)?) -> Unit,
-    private val holdWrite: (PendingWrite?) -> Unit,
-) : FilePicker {
+private class AndroidFilePicker(private val activity: MainActivity?) : FilePicker {
     override fun pickGrayImage(dialogTitle: String, imageFilesLabel: String, onResult: (GrayPixels?) -> Unit) {
-        holdImage(onResult)
-        pickImage()
+        if (activity == null) onResult(null) else activity.pickImage(onResult)
     }
 
     override fun saveBytes(
@@ -127,9 +88,12 @@ private class AndroidFilePicker(
         bytes: ByteArray,
         onResult: (String?) -> Unit,
     ) {
-        holdWrite(PendingWrite(bytes, onResult))
+        if (activity == null) {
+            onResult(null)
+            return
+        }
         val name = if (suggestedName.lowercase().endsWith(".${extension.lowercase()}")) suggestedName else "$suggestedName.$extension"
-        createDocument(name)
+        activity.createDocument(name, bytes, onResult)
     }
 
     override fun pickBytes(
@@ -141,13 +105,12 @@ private class AndroidFilePicker(
         // The Storage Access Framework filters by MIME type, and an application-specific
         // export has none. Listing every file keeps the one the user exported selectable, and
         // what the file really is gets decided from its bytes.
-        holdRead(onResult)
-        pickDocument()
+        if (activity == null) onResult(null) else activity.readDocument(onResult)
     }
 }
 
 /** Reads the whole document at [uri], or `null` when it cannot be opened, read or is too large. */
-private fun read(context: Context, uri: Uri): ByteArray? =
+internal fun read(context: Context, uri: Uri): ByteArray? =
     try {
         context.contentResolver.openInputStream(uri)?.use { input ->
             val output = java.io.ByteArrayOutputStream()
@@ -167,7 +130,7 @@ private fun read(context: Context, uri: Uri): ByteArray? =
     }
 
 /** Writes [bytes] to the document at [uri], and answers with where they went. */
-private fun write(context: Context, uri: Uri, bytes: ByteArray): String? =
+internal fun write(context: Context, uri: Uri, bytes: ByteArray): String? =
     try {
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
         uri.toString()
@@ -185,7 +148,7 @@ private fun write(context: Context, uri: Uri, bytes: ByteArray): String? =
  * The size is read first, without decoding anything, so that a picture far larger than the
  * decoder needs is sampled down on the way in instead of being held in memory whole.
  */
-private fun decodeGray(context: Context, uri: Uri): GrayPixels? {
+internal fun decodeGray(context: Context, uri: Uri): GrayPixels? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     try {
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
