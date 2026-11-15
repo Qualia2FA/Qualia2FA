@@ -9,8 +9,8 @@ This product depends on the following separately-licensed components:
 
   Qualia2FA-Core           LGPL-3.0-or-later   https://github.com/Qualia2FA/Qualia2FA-Core
   Qualia2FA-FFI            LGPL-3.0-or-later   https://github.com/Qualia2FA/Qualia2FA-FFI
-  QualiaDeviceIdentityKit  LGPL-3.0-or-later   https://github.com/Qualia2FA/QualiaDeviceIdentityKit
-  QualiaTransport          LGPL-3.0-or-later   https://github.com/Qualia2FA/QualiaTransport
+  QualiaDeviceIdentityKit  LGPL-3.0-or-later   https://github.com/QualiaApps/QualiaDeviceIdentityKit
+  QualiaTransport          LGPL-3.0-or-later   https://github.com/QualiaApps/QualiaTransport
 
 Qualia2FA-FFI is loaded as a shared library at run time and statically includes
 qualia2fa-core, qualia-dik and qualia-transport. All four remain under the GNU
